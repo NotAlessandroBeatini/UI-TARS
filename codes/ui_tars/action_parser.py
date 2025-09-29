@@ -960,21 +960,30 @@ def parse_xml_action(content: str, tool_schemas: list, think_end_token: str = "<
 def parse_structure_to_tree(input_text):
     # Step 1: 提取所有标签信息
     def extract_tags(text):
+        # 定义正则表达式模式
         tag_pattern = r"<(/?)(\w+)(?:=([^>]+))?>"
+        # 定义需要提取的特定标签
+        allowed_tags = {"parameter", "item", "object"}
         tags = []
+
+        # 使用正则表达式查找所有标签
         for match in re.finditer(tag_pattern, text):
-            is_closing = match.group(1) == "/"
-            tag_name = match.group(2)
-            tag_param = match.group(3)
-            start_idx = match.start()
-            end_idx = match.end()
-            tags.append({
-                "is_closing": is_closing,
-                "tag_name": tag_name,
-                "tag_param": tag_param,
-                "start_idx": start_idx,
-                "end_idx": end_idx
-            })
+            is_closing = match.group(1) == "/"  # 是否是关闭标签
+            tag_name = match.group(2)          # 标签名
+            tag_param = match.group(3)         # 标签参数（如果有）
+            start_idx = match.start()          # 标签起始位置
+            end_idx = match.end()              # 标签结束位置
+
+            # 仅处理特定的标签
+            if tag_name in allowed_tags:
+                tags.append({
+                    "is_closing": is_closing,
+                    "tag_name": tag_name,
+                    "tag_param": tag_param,
+                    "start_idx": start_idx,
+                    "end_idx": end_idx
+                })
+
         return tags
 
     # Step 2: 构建树结构
@@ -1206,7 +1215,7 @@ def validate_and_fix_data(schema, data):
     :param data: 要验证的数据。
     :return: 如果数据符合 schema，返回 True；如果修复后符合 schema，返回 True；否则返回 False。
     """
-    def fix_data_types(schema, data):
+    def fix_data_types(schema, data, param_names):
         """
         根据 JSON Schema 修复数据类型问题。
         :param schema: JSON Schema。
@@ -1214,40 +1223,41 @@ def validate_and_fix_data(schema, data):
         """
         if isinstance(schema, dict) and "type" in schema:
             expected_type = schema["type"]
-            param_name = schema["name"]
-            # 修复基本类型
-            if expected_type in PARAM_INT_TYPE and isinstance(data, str):
-                try:
-                    return int(data)
-                except ValueError as e:
-                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an integer.") from e
-            elif expected_type in PARAM_NUMBER_TYPE and isinstance(data, str):
-                try:
-                    return float(data)
-                except ValueError as e:
-                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an float number.") from e
-            elif expected_type in PARAM_BOOL_TYPE and isinstance(data, str):
-                try:
-                    if data.lower() == "true":
-                        data = True
-                    elif data.lower() == "false":
-                        data = False
-                    else:
-                        data = bool(data)
-                    return data
-                except ValueError as e:
-                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an boolean.") from e
+            for param_name in param_names:
+                if expected_type in PARAM_INT_TYPE and isinstance(data, str):
+                    try:
+                        return int(data)
+                    except ValueError as e:
+                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an integer.") from e
+                elif expected_type in PARAM_NUMBER_TYPE and isinstance(data, str):
+                    try:
+                        return float(data)
+                    except ValueError as e:
+                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an float number.") from e
+                elif expected_type in PARAM_BOOL_TYPE and isinstance(data, str):
+                    try:
+                        if data.lower() == "true":
+                            data = True
+                        elif data.lower() == "false":
+                            data = False
+                        else:
+                            data = bool(data)
+                        return data
+                    except ValueError as e:
+                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an boolean.") from e
 
         # 如果是对象类型，递归修复
         if isinstance(schema, dict) and "properties" in schema and isinstance(data, dict):
             for key, subschema in schema["properties"].items():
                 if key in data:
-                    data[key] = fix_data_types(subschema, data[key])
+                    data[key] = fix_data_types(subschema, data[key], [key])
 
         # 如果是数组类型，递归修复
         if isinstance(schema, dict) and "items" in schema and isinstance(data, list):
             for i in range(len(data)):
-                data[i] = fix_data_types(schema["items"], data[i])
+                if "properties" in schema:
+                    param_names = list(schema["properties"].keys())
+                data[i] = fix_data_types(schema["items"], data[i], param_names)
 
         return data
 
@@ -1258,7 +1268,8 @@ def validate_and_fix_data(schema, data):
     except jsonschema.exceptions.ValidationError as e:
         # 如果验证失败，尝试修复数据类型
         # print(f"Validation Error: {e.message}")
-        data = fix_data_types(schema, data)
+        param_names = list(schema["properties"].keys())
+        data = fix_data_types(schema, data, param_names)
         # 再次验证修复后的数据
         try:
             validate(instance=data, schema=schema)
@@ -1545,8 +1556,7 @@ if __name__ == '__main__':
                         },
                         "required": [
                             "x",
-                            "y",
-                            "z"
+                            "y"
                         ]
                     }
                 },
