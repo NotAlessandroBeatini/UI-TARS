@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from collections.abc import Iterable
 from enum import Enum, unique
 from PIL import Image, ImageDraw
+import jsonschema
+from jsonschema import validate
 
 IMAGE_FACTOR = 28
 MIN_PIXELS = 100 * 28 * 28
@@ -23,7 +25,34 @@ KEY_MAPPING = {
 
 FN_REGEX_PATTERN = r'<function=([^>]+)>\n?(.*?)</function>'
 FN_PARAM_REGEX_PATTERN = r'<parameter=([^>]+)>(.*?)</parameter>'
-    
+
+PARAM_INT_TYPE = [
+    "integer",
+]
+
+PARAM_NUMBER_TYPE = [
+    "number",
+]
+
+PARAM_STRING_TYPE = [
+    "string",
+    "str"
+]
+
+PARAM_ARRAY_TYPE = [
+    "array",
+    "list"
+]
+
+PARAM_BOOL_TYPE = [
+    "boolean",
+    "bool",
+]
+
+PARAM_OBJECT_TYPE = [
+    "object",
+]
+
 class FunctionCallConversionError(Exception):
     def __init__(self, message):
         super().__init__(message)
@@ -763,16 +792,41 @@ def _extract_and_validate_params(matching_tool: dict, param_matches: Iterable[re
         # Validate and convert parameter type
         # supported: string, integer, array
         if param_name in param_name_to_type:
-            if param_name_to_type[param_name] == 'integer':
+            if param_name_to_type[param_name].lower() in PARAM_INT_TYPE:
                 try:
                     param_value = int(param_value)
                 except ValueError as e:
                     raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an integer.") from e
-            elif param_name_to_type[param_name] == 'array':
+            elif param_name_to_type[param_name].lower() in PARAM_ARRAY_TYPE:
                 try:
                     param_value = json.loads(param_value)
                 except json.JSONDecodeError as e:
                     raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an array.") from e
+            elif param_name_to_type[param_name].lower() in PARAM_NUMBER_TYPE:
+                try:
+                    param_value = float(param_value)
+                except ValueError as e:
+                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an float number.") from e
+            elif param_name_to_type[param_name].lower() in PARAM_STRING_TYPE:
+                try:
+                    param_value = str(param_value)
+                except ValueError as e:
+                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an string.") from e
+            elif param_name_to_type[param_name].lower() in PARAM_BOOL_TYPE:
+                try:
+                    if param_name_to_type[param_name].lower() == "true":
+                        param_value = True
+                    elif param_name_to_type[param_name].lower() == "false":
+                        param_value = False
+                    else:
+                        param_value = bool(param_value)
+                except ValueError as e:
+                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an boolean.") from e
+            elif param_name_to_type[param_name].lower() in PARAM_OBJECT_TYPE:
+                try:
+                    param_value = json.loads(param_value)
+                except json.JSONDecodeError as e:
+                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an json string object.") from e
             else:
                 # string
                 pass
@@ -795,7 +849,19 @@ def _extract_and_validate_params(matching_tool: dict, param_matches: Iterable[re
         raise FunctionCallValidationError(f"Missing required parameters for function '{fn_name}': {missing_params}")
     return params
 
-def parse_xml_action(content: str, tool_schemas: list) -> list:
+def remove_nest_function(tool_schemas):
+    new_schemas = []
+    for tool_schema in tool_schemas:
+        if "function" in tool_schema:
+            tool_schema = tool_schema["function"]
+            tool_schema = {
+                'type': 'function',  # 首先插入 'type' 字段
+                **tool_schema        # 然后插入原有的其他字段
+            }
+        new_schemas.append(tool_schema)
+    return new_schemas
+
+def parse_xml_action(content: str, tool_schemas: list, think_end_token: str = "</think_never_used_51bce0c785ca2f68081bfa7d91973934>") -> list:
     """
     Parse function-style tool calls from the response content.
 
@@ -856,9 +922,8 @@ def parse_xml_action(content: str, tool_schemas: list) -> list:
         FunctionCallValidationError: 
             If a function name in the content does not match any tool schema.
     """
-    assert "<seed:tool_call>" in content and "</seed:tool_call>" in content
     tool_calls = []
-
+    tool_schemas = remove_nest_function(tool_schemas)
     # Find all function calls using regex pattern
     fn_matches = re.finditer(FN_REGEX_PATTERN, content, re.DOTALL)
 
@@ -869,21 +934,21 @@ def parse_xml_action(content: str, tool_schemas: list) -> list:
         # Find matching tool
         matching_schema = None
         for tool_schema in tool_schemas:
-            if tool_schema["function"]["name"] == fn_name:
+            if tool_schema["name"] == fn_name:
                 matching_schema = tool_schema
                 break
 
         if not matching_schema:
             raise FunctionCallValidationError(
-                f"Function '{fn_name}' not found in available tools: {[tool['function']['name'] for tool in tool_schemas]}"
+                f"Function '{fn_name}' not found in available tools: {[tool['name'] for tool in tool_schemas]}"
             )
 
         # Parse parameters
         param_matches = re.finditer(FN_PARAM_REGEX_PATTERN, fn_body, re.DOTALL)
 
         # Extract and validate parameters using the existing function
-        if 'function' in matching_schema:
-            params = _extract_and_validate_params(matching_schema['function'], param_matches, fn_name)
+        if matching_schema["type"] == "function":
+            params = _extract_and_validate_params(matching_schema, param_matches, fn_name)
         else:
             params = {}
 
@@ -892,6 +957,316 @@ def parse_xml_action(content: str, tool_schemas: list) -> list:
 
     return tool_calls
 
+def parse_structure_to_tree(input_text):
+    # Step 1: 提取所有标签信息
+    def extract_tags(text):
+        tag_pattern = r"<(/?)(\w+)(?:=([^>]+))?>"
+        tags = []
+        for match in re.finditer(tag_pattern, text):
+            is_closing = match.group(1) == "/"
+            tag_name = match.group(2)
+            tag_param = match.group(3)
+            start_idx = match.start()
+            end_idx = match.end()
+            tags.append({
+                "is_closing": is_closing,
+                "tag_name": tag_name,
+                "tag_param": tag_param,
+                "start_idx": start_idx,
+                "end_idx": end_idx
+            })
+        return tags
+
+    # Step 2: 构建树结构
+    def build_tree(tags, text):
+        """
+        构建树结构，包含开始标签和闭合标签。
+        :param tags: 提取的标签列表。
+        :param text: 原始文本，用于提取内容。
+        :return: 构建的树结构。
+        """
+        # 引入一个虚拟根节点
+        root = {
+            "tag_name": "root",
+            "tag_param": None,
+            "start_idx": None,
+            "end_idx": None,
+            "children": []
+        }
+        stack = [root]  # 用于管理当前的标签层级，初始栈中包含虚拟根节点
+
+        for tag in tags:
+            if not tag["is_closing"]:
+                # 开始标签
+                node = {
+                    "tag_name": tag["tag_name"],
+                    "tag_param": tag["tag_param"],
+                    "start_idx": tag["start_idx"],
+                    "end_idx": tag["end_idx"],
+                    "children": []
+                }
+                # 将当前节点添加到栈顶节点的 children 中
+                stack[-1]["children"].append(node)
+                # 将当前节点压入栈
+                stack.append(node)
+            else:
+                # 闭合标签
+                if stack:
+                    # 将闭合标签信息添加到栈顶节点
+                    stack[-1]["close_tag_name"] = "/" + tag["tag_name"]
+                    stack[-1]["close_tag_param"] = None
+                    stack[-1]["close_tag_start_idx"] = tag["start_idx"]
+                    stack[-1]["close_tag_end_idx"] = tag["end_idx"]
+                    # 弹出栈顶
+                    stack.pop()
+
+        return root
+
+    # Step 3: 提取标签内容
+    def extract_content(node, text):
+        if node["tag_name"] == "parameter":
+            # 提取 <parameter=key>value</parameter> 的内容
+            param_key = node["tag_param"]
+            param_value = text[node["start_idx"]:node["end_idx"]]
+            return {param_key: param_value}
+        elif node["tag_name"] == "list":
+            # 提取 <list>...</list> 的内容
+            return [extract_content(child, text) for child in node["children"]]
+        elif node["tag_name"] == "object":
+            # 提取 <object>...</object> 的内容
+            return {child["tag_param"]: extract_content(child, text) for child in node["children"]}
+        else:
+            return text[node["start_idx"]:node["end_idx"]]
+
+    # 执行解析
+    tags = extract_tags(input_text)
+    tree = build_tree(tags, input_text)
+    final_result = {}
+    for child in tree["children"]:
+        result = parse_tree(child, input_text)
+        final_result.update(result)
+    return final_result
+
+def parse_tree(node, input_text):
+    # 如果当前节点有子节点，递归解析子节点
+    if "children" in node and node["children"]:
+        # 如果当前节点是 "parameter" 且有 tag_param，构建一个键值对
+        if node["tag_name"] == "parameter" and node["tag_param"]:
+            # 如果只有一个子节点，直接解析子节点
+            if len(node["children"]) == 1:
+                return {node["tag_param"]: parse_tree(node["children"][0], input_text)}
+            # 如果有多个子节点，解析为列表
+            else:
+                return {node["tag_param"]: [parse_tree(child, input_text) for child in node["children"]]}
+        # 如果当前节点是 "list"，返回子节点的列表
+        elif node["tag_name"] == "list":
+            result = [parse_tree(child, input_text) for child in node["children"]]
+            # import pdb;pdb.set_trace()
+            return result
+        # 如果当前节点是 "object" 或其他容器类型，返回子节点的合并结果
+        elif node["tag_name"] == "object":
+            result = {}
+            for child in node["children"]:
+                child_result = parse_tree(child, input_text)
+                # 确保子节点返回的是字典
+                if isinstance(child_result, dict):
+                    result.update(child_result)
+                else:
+                    raise RuntimeError("Object return not dict!!!")
+                # import pdb;pdb.set_trace()
+            return result
+        elif node["tag_name"] == "item":
+            dict_result = {}
+            list_result = []
+            is_dict = False
+            is_list = False
+            for child in node["children"]:
+                child_result = parse_tree(child, input_text)
+                # 确保子节点返回的是字典
+                if isinstance(child_result, dict):
+                    dict_result.update(child_result)
+                    is_dict = True
+                elif isinstance(child_result, list):
+                    list_result.extend(child_result)
+                    is_list = True
+                else:
+                    raise RuntimeError("Item with children return not dict or list !!!")
+                # import pdb;pdb.set_trace()
+            if is_list:
+                return list_result
+            else:
+                return dict_result
+    else:
+        # 如果当前节点没有子节点，提取实际的值
+        end_idx = node["end_idx"]
+        close_tag_start_idx = node["close_tag_start_idx"]
+        value = input_text[end_idx:close_tag_start_idx]
+        if node["tag_name"] == "parameter" and node["tag_param"]:
+            return {node["tag_param"]: value}
+        else:
+            return value
+    return {}
+
+def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
+    """
+    Parse function-style tool calls from the response content.
+
+    Args:
+        content (str): 
+            The XML-like string containing one or more `<function>` blocks. 
+            Each `<function>` block should follow this format:
+            ```
+            <function=function_name>
+                <parameter=parameter_name>parameter_value</parameter>
+            </function>
+            ```
+            Example:
+            ```
+            <function=click>
+                <parameter=point>100 200</parameter>
+            </function>
+            <function=type>
+                <parameter=content>123</parameter>
+            </function>
+            ```
+
+        tool_schemas (list of dict): 
+            A list of tool schema definitions. Each schema should be a dictionary 
+            with the following structure:
+            ```
+            {
+                "function": {
+                    "name": "function_name",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "parameter_name": {
+                                "type": "str",
+                                "description": "Description of the parameter."
+                            }
+                        },
+                        "required": ["parameter_name"]
+                    }
+                }
+            }
+            ```
+
+    Returns:
+        list of dict: 
+            A list of parsed tool calls. Each tool call is represented as a dictionary 
+            with the following structure:
+            ```
+            {
+                "function": "function_name",
+                "parameters": {
+                    "parameter_name": "parameter_value"
+                }
+            }
+            ```
+
+    Raises:
+        FunctionCallValidationError: 
+            If a function name in the content does not match any tool schema.
+    """
+    tool_calls = []
+    tool_schemas = remove_nest_function(tool_schemas)
+    # Find all function calls using regex pattern
+    fn_matches = re.finditer(FN_REGEX_PATTERN, content, re.DOTALL)
+
+    for fn_match in fn_matches:
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+        
+        # Find matching tool
+        matching_schema = None
+        for tool_schema in tool_schemas:
+            if tool_schema["name"] == fn_name:
+                matching_schema = tool_schema
+                break
+
+        if not matching_schema:
+            raise FunctionCallValidationError(
+                f"Function '{fn_name}' not found in available tools: {[tool['name'] for tool in tool_schemas]}"
+            )
+            
+        params = parse_structure_to_tree(fn_body)
+
+        # Create tool call
+        tool_calls.append({"function": fn_name, "parameters": params})
+        valid = validate_and_fix_data(matching_schema['parameters'], params)
+        if not valid:
+            raise FunctionCallValidationError(f"Schema '{matching_schema}' valid error")
+    return tool_calls
+
+def validate_and_fix_data(schema, data):
+    """
+    验证数据是否符合给定的 JSON Schema，并尝试修复数据类型问题。
+
+    :param schema: JSON Schema，用于定义数据结构和约束。
+    :param data: 要验证的数据。
+    :return: 如果数据符合 schema，返回 True；如果修复后符合 schema，返回 True；否则返回 False。
+    """
+    def fix_data_types(schema, data):
+        """
+        根据 JSON Schema 修复数据类型问题。
+        :param schema: JSON Schema。
+        :param data: 要修复的数据。
+        """
+        if isinstance(schema, dict) and "type" in schema:
+            expected_type = schema["type"]
+            param_name = schema["name"]
+            # 修复基本类型
+            if expected_type in PARAM_INT_TYPE and isinstance(data, str):
+                try:
+                    return int(data)
+                except ValueError as e:
+                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an integer.") from e
+            elif expected_type in PARAM_NUMBER_TYPE and isinstance(data, str):
+                try:
+                    return float(data)
+                except ValueError as e:
+                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an float number.") from e
+            elif expected_type in PARAM_BOOL_TYPE and isinstance(data, str):
+                try:
+                    if data.lower() == "true":
+                        data = True
+                    elif data.lower() == "false":
+                        data = False
+                    else:
+                        data = bool(data)
+                    return data
+                except ValueError as e:
+                    raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an boolean.") from e
+
+        # 如果是对象类型，递归修复
+        if isinstance(schema, dict) and "properties" in schema and isinstance(data, dict):
+            for key, subschema in schema["properties"].items():
+                if key in data:
+                    data[key] = fix_data_types(subschema, data[key])
+
+        # 如果是数组类型，递归修复
+        if isinstance(schema, dict) and "items" in schema and isinstance(data, list):
+            for i in range(len(data)):
+                data[i] = fix_data_types(schema["items"], data[i])
+
+        return data
+
+    try:
+        # 尝试直接验证数据
+        validate(instance=data, schema=schema)
+        return True
+    except jsonschema.exceptions.ValidationError as e:
+        # 如果验证失败，尝试修复数据类型
+        # print(f"Validation Error: {e.message}")
+        data = fix_data_types(schema, data)
+        # 再次验证修复后的数据
+        try:
+            validate(instance=data, schema=schema)
+            return True
+        except jsonschema.exceptions.ValidationError as e:
+            print(f"Validation Error: {e.message}")
+            return False
+        
 def actions_valid_checker(actions, action_space_requirement=None):
     """检查action是否符合我们的动作空间定义"""
     valid_action_type = [
@@ -1135,28 +1510,97 @@ def format_transfer(
         function_content += f"\n</function>\n"
     final_content = f"{think_content}{begin_tool_call_token}{function_content}{end_tool_call_token}"
     return final_content
+
     
-
 if __name__ == '__main__':
-    image_height = 1080
-    image_width = 1920
-    content = """<gui_think> xxx </gui_think>
+    
+    input_text = """<gui_think>好的，现在文档内容已经全部选中了。我注意到工具栏上有个背景颜色的按钮，旁边有个小箭头，点击它就能打开颜色选择面板。我需要在里面选择"无填充"选项，这样就能一次性清除所有文字的黄色高亮了。</gui_think>
 <seed:tool_call>
-<function=drag>
-<parameter=start_point><point>1000 1000</point></parameter>
-<parameter=end_point><point>500 500</point></parameter>
-</function>
-
 <function=click>
-<parameter=point><point>1000 1000</point></parameter>
-</function>
-
-<function=type>
-<parameter=content>''''</parameter>
+<parameter=point><object><parameter=x>539</parameter><parameter=y>130</parameter></object></parameter>
 </function>
 </seed:tool_call>"""
-    tool_schemas = [{'type': 'function', 'function': {'name': 'click', 'parameters': {'type': 'object', 'properties': {'point': {'type': 'str', 'description': 'Click coordinates. The format is: <point>x y</point>'}, 'button': {'type': 'str', 'description': 'Click button. Default to left.', 'enum': ['left', 'right']}, 'clicks': {'type': 'integer', 'description': 'Click times. Default to 1.'}}, 'required': ['point']}, 'description': 'Mouse click action.'}}, {'type': 'function', 'function': {'name': 'mouse_move', 'parameters': {'type': 'object', 'properties': {'point': {'type': 'str', 'description': 'Target coordinates. The format is: <point>x y</point>'}}, 'required': ['point']}, 'description': 'Mouse move action.'}}, {'type': 'function', 'function': {'name': 'mouse_down', 'parameters': {'type': 'object', 'properties': {'point': {'type': 'str', 'description': 'Mouse down position. If not specified, default to execute on the current mouse position. The format is: <point>x y</point>'}, 'button': {'type': 'str', 'description': 'Down button. Default to left.', 'enum': ['left', 'right']}}, 'required': []}, 'description': 'Mouse down action.'}}, {'type': 'function', 'function': {'name': 'mouse_up', 'parameters': {'type': 'object', 'properties': {'point': {'type': 'str', 'description': 'Mouse up position. If not specified, default to execute on the current mouse position. The format is: <point>x y</point>'}, 'button': {'type': 'str', 'description': 'Up button. Default to left.', 'enum': ['left', 'right']}}, 'required': []}, 'description': 'Mouse up action.'}}, {'type': 'function', 'function': {'name': 'scroll', 'parameters': {'type': 'object', 'properties': {'point': {'type': 'str', 'description': 'Scroll start position. If not specified, default to execute on the current mouse position. The format is: <point>x y</point>'}, 'direction': {'type': 'str', 'description': 'Scroll direction.', 'enum': ['up', 'down', 'left', 'right']}}, 'required': ['direction']}, 'description': 'Scroll action.'}}, {'type': 'function', 'function': {'name': 'wait', 'parameters': {'type': 'object', 'properties': {'time': {'type': 'integer', 'description': 'Wait time in seconds.'}}, 'required': []}, 'description': 'Wait for a while.'}}, {'type': 'function', 'function': {'name': 'finished', 'parameters': {'type': 'object', 'properties': {'content': {'type': 'str', 'description': 'Put your final answer here.'}}, 'required': []}, 'description': 'Finish with answer.'}}, {'type': 'function', 'function': {'name': 'call_user', 'parameters': {'type': 'object', 'properties': {'content': {'type': 'str', 'description': 'The message or information to be displayed to the user for their input or guidance.'}}, 'required': []}, 'description': 'Call user for guidance and assistance.'}}, {'type': 'function', 'function': {'name': 'type', 'parameters': {'type': 'object', 'properties': {'content': {'type': 'str', 'description': 'Type content. If you want to submit your input, use \n at the end of content.'}}, 'required': ['content']}, 'description': 'Type content.'}}, {'type': 'function', 'function': {'name': 'hotkey', 'parameters': {'type': 'object', 'properties': {'key': {'type': 'str', 'description': 'Hotkeys you want to press. Split keys with a space and use lowercase.'}}, 'required': ['key']}, 'description': 'Press hotkey.'}}, {'type': 'function', 'function': {'name': 'press', 'parameters': {'type': 'object', 'properties': {'key': {'type': 'str', 'description': 'Key you want to press. Only one key can be pressed at one time.'}}, 'required': ['key']}, 'description': 'Press key.'}}, {'type': 'function', 'function': {'name': 'release', 'parameters': {'type': 'object', 'properties': {'key': {'type': 'str', 'description': 'Key you want to release. Only one key can be released at one time.'}}, 'required': ['key']}, 'description': 'Release key.'}}, {'type': 'function', 'function': {'name': 'drag', 'parameters': {'type': 'object', 'properties': {'start_point': {'type': 'str', 'description': 'Drag start point. The format is: <point>x y</point>'}, 'end_point': {'type': 'str', 'description': 'Drag end point. The format is: <point>x y</point>'}, 'button': {'type': 'str', 'description': 'Drag button. Default to left.', 'enum': ['left', 'right']}}, 'required': ['start_point', 'end_point']}, 'description': 'Mouse drag action.'}}]
+    tool_schemas = [
+        {
+            "type": "function",
+            "name": "click",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "point": {
+                        "type": "object",
+                        "properties": {
+                            "x": {
+                                "type": "integer",
+                                "description": "Click coordinates. The format is: <point>x y</point>"
+                            },
+                            "y": {
+                                "type": "integer",
+                                "description": "Click coordinates. The format is: <point>x y</point>"
+                            },
+                            "z": {
+                                "type": "integer",
+                                "description": "Click coordinates. The format is: <point>x y</point>"
+                            }
+                        },
+                        "required": [
+                            "x",
+                            "y",
+                            "z"
+                        ]
+                    }
+                },
+                
+            },
+            "description": "Mouse left single click action."
+        }
+    ]
+    parsed_toolcalls = parse_xml_action_v2(input_text, tool_schemas,)
+    print(parsed_toolcalls)
+    input()
+    image_height = 1080
+    image_width = 1920
+    def convert_point_to_coordinates(text, is_answer=False):
+        # 匹配 <bbox> 后面的四个数字
+        pattern = r"<point>(\d+)\s+(\d+)</point>"
+        
+        def replace_match(match):
+            x1, y1= map(int, match.groups())
+            x = (x1 + x1) // 2  # 使用截断取整
+            y = (y1 + y1) // 2  # 使用截断取整
+            if is_answer:
+                return f"({x},{y})"  # 只返回 (x, y) 格式
+            return f"({x},{y})"  # 返回带标签的格式
+        
+        # 去掉 [EOS] 并替换 <bbox> 坐标
+        text = re.sub(r"\[EOS\]", "", text)
+        return re.sub(pattern, replace_match, text).strip()
+    content = """<gui_think>我看到左侧的航空公司筛选栏里有个"Other"选项，这应该就是我要找的。毕竟Aer Lingus作为一家欧洲航空公司，很可能被归类在"其他"类别下。让我点击这个复选框，这样就能过滤出更多航班选项，找到符合时间要求的爱尔兰航空航班。</gui_think>\n<seed:tool_call><function=click><parameter=point><function name="click">
+<parameter name="point"><point>34 325</point></parameter>
+</function></parameter></function><function=click><parameter=point><point>123 638</point></parameter></function><function=click><parameter=point><point>223 562</point></parameter></function></seed:tool_call>"""
+    print(convert_point_to_coordinates(content))
+    tool_schemas = [
+    {
+        "type": "function",
+        "function": {
+            "name": "click",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "point": {
+                        "type": "string",
+                        "description": "Click coordinates. The format is: <point>x y</point>"
+                    }
+                },
+                "required": [
+                    "point"
+                ]
+            },
+            "description": "Mouse left single click action."
+        }
+    }]
     parsed_xml_actions = parse_xml_action(content, tool_schemas)
+    print(parsed_xml_actions)
     # print(a[0]["parameters"]["content"])
     actions = []
     for xml_action in parsed_xml_actions:
@@ -1169,7 +1613,7 @@ if __name__ == '__main__':
     result = parsing_response_to_pyautogui_code(actions, image_height, image_width)
     print(result)
     
-    old_format = "<think> 点击按钮</think>\nAction: drag(start_point='<point>100 100</point>',end_point='<point>200 300</point>')"
+    old_format = "Thought: 点击按钮\nAction: drag(start_point='<point>100 100</point>',end_point='<point>200 300</point>')"
     new_format = format_transfer(old_format)
     print("old format: ", old_format)
     print("new format: ", new_format)
