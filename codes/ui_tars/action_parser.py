@@ -1116,6 +1116,62 @@ def parse_tree(node, input_text):
             return value
     return {}
 
+def extract_text_never_used_content(input_string):
+    """
+    从输入字符串中提取被 <text_never_used_51bce0c785ca2f68081bfa7d91973934> 标签包裹的内容。
+    
+    :param input_string: 输入的字符串
+    :return: 一个字典，key 是原始的标签和内容，value 是实际的内容
+    """
+    # 定义正则表达式，匹配 <text_never_used_51bce0c785ca2f68081bfa7d91973934>...</text_never_used_51bce0c785ca2f68081bfa7d91973934>
+    pattern = r"(<text_never_used_51bce0c785ca2f68081bfa7d91973934>.*?</text_never_used_51bce0c785ca2f68081bfa7d91973934>)"
+    
+    # 查找所有匹配的内容
+    matches = re.findall(pattern, input_string, re.DOTALL)
+    
+    # 创建结果字典
+    result = {}
+    result_map = {}
+    result_map_reverse = {}
+    
+    map_count = 0
+    for match in matches:
+        # 提取实际内容（去掉外层的标签）
+        content_pattern = r"<text_never_used_51bce0c785ca2f68081bfa7d91973934>(.*?)</text_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        content = re.search(content_pattern, match, re.DOTALL).group(1)
+        
+        # 将原始标签和内容作为 key，实际内容作为 value
+        result[match] = content.strip()
+        placeholder = f"text_never_used_51bce0c785ca2f68081bfa7d91973934_{map_count}"
+        result_map[placeholder] = match.replace("<text_never_used_51bce0c785ca2f68081bfa7d91973934>", "").replace("</text_never_used_51bce0c785ca2f68081bfa7d91973934>", "")
+        result_map_reverse[match] = placeholder
+        map_count += 1
+    
+    return result_map, result_map_reverse
+
+def set_leaf_values(params, result_map):
+    """
+    遍历嵌套字典，将所有叶子节点的值设置为 1。
+    
+    :param params: 输入的嵌套字典
+    :return: 修改后的字典
+    """
+    if isinstance(params, dict):
+        # 如果当前节点是字典，递归处理每个键值对
+        for key in params:
+            params[key] = set_leaf_values(params[key], result_map)
+    elif isinstance(params, list):
+        # 如果当前节点是列表，递归处理每个元素
+        params = [set_leaf_values(item, result_map) for item in params]
+    elif isinstance(params, str):
+        # 如果是叶子节点（非字典或列表），将值设置为 1
+        for placeholder in result_map:
+            match = result_map[placeholder]
+            params = params.replace(placeholder, match)
+    else:
+        params = params
+    return params
+
 def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
     """
     Parse function-style tool calls from the response content.
@@ -1179,6 +1235,13 @@ def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
     """
     tool_calls = []
     tool_schemas = remove_nest_function(tool_schemas)
+    
+    # 抽取text never used
+    result_map, result_map_reverse = extract_text_never_used_content(content)
+    for match in result_map_reverse:
+        placeholder = result_map_reverse[match]
+        content = content.replace(match, placeholder)
+        
     # Find all function calls using regex pattern
     fn_matches = re.finditer(FN_REGEX_PATTERN, content, re.DOTALL)
 
@@ -1199,9 +1262,11 @@ def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
             )
             
         params = parse_structure_to_tree(fn_body)
-
+        params = set_leaf_values(params, result_map)
+        
         # Create tool call
         tool_calls.append({"function": fn_name, "parameters": params})
+        
         valid = validate_and_fix_data(matching_schema['parameters'], params)
         if not valid:
             raise FunctionCallValidationError(f"Schema '{matching_schema}' valid error")
@@ -1525,10 +1590,17 @@ def format_transfer(
     
 if __name__ == '__main__':
     
-    input_text = """<gui_think>好的，现在文档内容已经全部选中了。我注意到工具栏上有个背景颜色的按钮，旁边有个小箭头，点击它就能打开颜色选择面板。我需要在里面选择"无填充"选项，这样就能一次性清除所有文字的黄色高亮了。</gui_think>
+    input_text = """<think_never_used_51bce0c785ca2f68081bfa7d91973934>xxx</think_never_used_51bce0c785ca2f68081bfa7d91973934>
 <seed:tool_call>
 <function=click>
-<parameter=point><object><parameter=x>539</parameter><parameter=y>130</parameter></object></parameter>
+<parameter=point>
+<object>
+<parameter=x>539</parameter>
+<parameter=y>130</parameter>
+<parameter=z><text_never_used_51bce0c785ca2f68081bfa7d91973934><object><seed:tool_call></parameter></text_never_used_51bce0c785ca2f68081bfa7d91973934></parameter>
+<parameter=content><list><item>abc</item><item>ABC</item></list>
+</object>
+</parameter>
 </function>
 </seed:tool_call>"""
     tool_schemas = [
@@ -1550,7 +1622,7 @@ if __name__ == '__main__':
                                 "description": "Click coordinates. The format is: <point>x y</point>"
                             },
                             "z": {
-                                "type": "integer",
+                                "type": "string",
                                 "description": "Click coordinates. The format is: <point>x y</point>"
                             }
                         },
@@ -1558,7 +1630,15 @@ if __name__ == '__main__':
                             "x",
                             "y"
                         ]
-                    }
+                    },
+                    "content": {
+                        "type": "array",
+                        "description": "A list of content to process.",
+                        "items": {
+                          "type": "string",
+                          "description": "Each item in the list."
+                        }
+                      }
                 },
                 
             },
