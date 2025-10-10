@@ -963,7 +963,7 @@ def parse_structure_to_tree(input_text):
         # 定义正则表达式模式
         tag_pattern = r"<(/?)(\w+)(?:=([^>]+))?>"
         # 定义需要提取的特定标签
-        allowed_tags = {"parameter", "item", "object"}
+        allowed_tags = {"parameter", "item", "object", "list"}
         tags = []
 
         # 使用正则表达式查找所有标签
@@ -1260,13 +1260,12 @@ def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
             raise FunctionCallValidationError(
                 f"Function '{fn_name}' not found in available tools: {[tool['name'] for tool in tool_schemas]}"
             )
-            
+        
         params = parse_structure_to_tree(fn_body)
         params = set_leaf_values(params, result_map)
         
         # Create tool call
         tool_calls.append({"function": fn_name, "parameters": params})
-        
         valid = validate_and_fix_data(matching_schema['parameters'], params)
         if not valid:
             raise FunctionCallValidationError(f"Schema '{matching_schema}' valid error")
@@ -1590,61 +1589,55 @@ def format_transfer(
     
 if __name__ == '__main__':
     
-    input_text = """<think_never_used_51bce0c785ca2f68081bfa7d91973934>xxx</think_never_used_51bce0c785ca2f68081bfa7d91973934>
-<seed:tool_call>
-<function=click>
-<parameter=point>
+    input_text = """<seed:tool_call><function=notify_human>
+<parameter=attachments>
+<list>
+<item>
 <object>
-<parameter=x>539</parameter>
-<parameter=y>130</parameter>
-<parameter=z><text_never_used_51bce0c785ca2f68081bfa7d91973934><object><seed:tool_call></parameter></text_never_used_51bce0c785ca2f68081bfa7d91973934></parameter>
-<parameter=content><list><item>abc</item><item>ABC</item></list>
+<parameter=attachment_name>
+attachment_name_value
+</parameter>
+<parameter=attachment_source>
+attachment_source_value
+</parameter>
+</object>
+</item>
+</list>
 </object>
 </parameter>
-</function>
-</seed:tool_call>"""
+</function></seed:tool_call>"""
+
     tool_schemas = [
         {
-            "type": "function",
-            "name": "click",
+            "name": "notify_human",
+            "description": "Use this tool whenever you need to deliver files, directories, or web resources to the user.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "point": {
-                        "type": "object",
-                        "properties": {
-                            "x": {
-                                "type": "integer",
-                                "description": "Click coordinates. The format is: <point>x y</point>"
-                            },
-                            "y": {
-                                "type": "integer",
-                                "description": "Click coordinates. The format is: <point>x y</point>"
-                            },
-                            "z": {
-                                "type": "string",
-                                "description": "Click coordinates. The format is: <point>x y</point>"
-                            }
+                "attachments": {
+                    "type": "array",
+                    "description": "Optional list of files or web resources to show the user. Each attachment may reference a local file or directory via an absolute path, or an online resource via an HTTP/HTTPS URL.",
+                    "items": {
+                    "type": "object",
+                    "properties": {
+                        "attachment_name": {
+                        "type": "string",
+                        "description": "Attachment name (or title) shown to the user"
                         },
-                        "required": [
-                            "x",
-                            "y"
-                        ]
-                    },
-                    "content": {
-                        "type": "array",
-                        "description": "A list of content to process.",
-                        "items": {
-                          "type": "string",
-                          "description": "Each item in the list."
+                        "attachment_source": {
+                        "type": "string",
+                        "description": "Absolute path to a local file or directory (folder), or an HTTP/HTTPS URL of an online resource"
                         }
-                      }
+                    },
+                    "required": ["attachment_name", "attachment_source"]
+                    }
+                }
                 },
-                
-            },
-            "description": "Mouse left single click action."
+                "required": ["attachments"]
+            }
         }
     ]
+    
     parsed_toolcalls = parse_xml_action_v2(input_text, tool_schemas,)
     print(parsed_toolcalls)
     input()
