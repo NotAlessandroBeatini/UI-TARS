@@ -1641,6 +1641,7 @@ attachment_source_value
     parsed_toolcalls = parse_xml_action_v2(input_text, tool_schemas,)
     print(parsed_toolcalls)
     input()
+    
     image_height = 1080
     image_width = 1920
     def convert_point_to_coordinates(text, is_answer=False):
