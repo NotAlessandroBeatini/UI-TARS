@@ -26,13 +26,16 @@ KEY_MAPPING = {
 FN_REGEX_PATTERN = r'<function=([^>]+)>\n?(.*?)</function>'
 FN_PARAM_REGEX_PATTERN = r'<parameter=([^>]+)>(.*?)</parameter>'
 
+FN_REGEX_PATTERN_V3 = r'<function_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>\n?(.*?)</function_never_used_51bce0c785ca2f68081bfa7d91973934>'
+FN_PARAM_REGEX_PATTERN_V3 = r'<parameter_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>'
+
+
 PARAM_INT_TYPE = [
     "integer",
+    "int"
 ]
 
-PARAM_NUMBER_TYPE = [
-    "number",
-]
+PARAM_NUMBER_TYPE = ["float", "double", "real", "number"]
 
 PARAM_STRING_TYPE = [
     "string",
@@ -49,9 +52,7 @@ PARAM_BOOL_TYPE = [
     "bool",
 ]
 
-PARAM_OBJECT_TYPE = [
-    "object",
-]
+PARAM_OBJECT_TYPE = ["dict", "obj", "object"]
 
 class FunctionCallConversionError(Exception):
     def __init__(self, message):
@@ -957,13 +958,13 @@ def parse_xml_action(content: str, tool_schemas: list, think_end_token: str = "<
 
     return tool_calls
 
-def parse_structure_to_tree(input_text):
+def parse_structure_to_tree(input_text, parameter_token):
     # Step 1: 提取所有标签信息
     def extract_tags(text):
         # 定义正则表达式模式
         tag_pattern = r"<(/?)(\w+)(?:=([^>]+))?>"
         # 定义需要提取的特定标签
-        allowed_tags = {"parameter", "item", "object", "list"}
+        allowed_tags = {parameter_token, "item", "object", "list"}
         tags = []
 
         # 使用正则表达式查找所有标签
@@ -1033,7 +1034,7 @@ def parse_structure_to_tree(input_text):
 
     # Step 3: 提取标签内容
     def extract_content(node, text):
-        if node["tag_name"] == "parameter":
+        if node["tag_name"] == parameter_token:
             # 提取 <parameter=key>value</parameter> 的内容
             param_key = node["tag_param"]
             param_value = text[node["start_idx"]:node["end_idx"]]
@@ -1052,31 +1053,31 @@ def parse_structure_to_tree(input_text):
     tree = build_tree(tags, input_text)
     final_result = {}
     for child in tree["children"]:
-        result = parse_tree(child, input_text)
+        result = parse_tree(child, input_text, parameter_token)
         final_result.update(result)
     return final_result
 
-def parse_tree(node, input_text):
+def parse_tree(node, input_text, parameter_token):
     # 如果当前节点有子节点，递归解析子节点
     if "children" in node and node["children"]:
         # 如果当前节点是 "parameter" 且有 tag_param，构建一个键值对
-        if node["tag_name"] == "parameter" and node["tag_param"]:
+        if node["tag_name"] == parameter_token and node["tag_param"]:
             # 如果只有一个子节点，直接解析子节点
             if len(node["children"]) == 1:
-                return {node["tag_param"]: parse_tree(node["children"][0], input_text)}
+                return {node["tag_param"]: parse_tree(node["children"][0], input_text, parameter_token)}
             # 如果有多个子节点，解析为列表
             else:
-                return {node["tag_param"]: [parse_tree(child, input_text) for child in node["children"]]}
+                return {node["tag_param"]: [parse_tree(child, input_text, parameter_token) for child in node["children"]]}
         # 如果当前节点是 "list"，返回子节点的列表
         elif node["tag_name"] == "list":
-            result = [parse_tree(child, input_text) for child in node["children"]]
+            result = [parse_tree(child, input_text, parameter_token) for child in node["children"]]
             # import pdb;pdb.set_trace()
             return result
         # 如果当前节点是 "object" 或其他容器类型，返回子节点的合并结果
         elif node["tag_name"] == "object":
             result = {}
             for child in node["children"]:
-                child_result = parse_tree(child, input_text)
+                child_result = parse_tree(child, input_text, parameter_token)
                 # 确保子节点返回的是字典
                 if isinstance(child_result, dict):
                     result.update(child_result)
@@ -1090,7 +1091,7 @@ def parse_tree(node, input_text):
             is_dict = False
             is_list = False
             for child in node["children"]:
-                child_result = parse_tree(child, input_text)
+                child_result = parse_tree(child, input_text, parameter_token)
                 # 确保子节点返回的是字典
                 if isinstance(child_result, dict):
                     dict_result.update(child_result)
@@ -1110,7 +1111,7 @@ def parse_tree(node, input_text):
         end_idx = node["end_idx"]
         close_tag_start_idx = node["close_tag_start_idx"]
         value = input_text[end_idx:close_tag_start_idx]
-        if node["tag_name"] == "parameter" and node["tag_param"]:
+        if node["tag_name"] == parameter_token and node["tag_param"]:
             return {node["tag_param"]: value}
         else:
             return value
@@ -1245,6 +1246,7 @@ def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
     # Find all function calls using regex pattern
     fn_matches = re.finditer(FN_REGEX_PATTERN, content, re.DOTALL)
 
+    parameter_token = "parameter"
     for fn_match in fn_matches:
         fn_name = fn_match.group(1)
         fn_body = fn_match.group(2)
@@ -1261,7 +1263,107 @@ def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
                 f"Function '{fn_name}' not found in available tools: {[tool['name'] for tool in tool_schemas]}"
             )
         
-        params = parse_structure_to_tree(fn_body)
+        params = parse_structure_to_tree(fn_body, parameter_token)
+        params = set_leaf_values(params, result_map)
+        
+        # Create tool call
+        tool_calls.append({"function": fn_name, "parameters": params})
+        valid = validate_and_fix_data(matching_schema['parameters'], params)
+        if not valid:
+            raise FunctionCallValidationError(f"Schema '{matching_schema}' valid error")
+    return tool_calls
+
+def parse_xml_action_v3(content: str, tool_schemas: list) -> list:
+    """
+    Parse function-style tool calls from the response content.
+
+    Args:
+        content (str): 
+            The XML-like string containing one or more `<function>` blocks. 
+            Each `<function>` block should follow this format:
+            ```
+            <function=function_name>
+                <parameter=parameter_name>parameter_value</parameter>
+            </function>
+            ```
+            Example:
+            ```
+            <function=click>
+                <parameter=point>100 200</parameter>
+            </function>
+            <function=type>
+                <parameter=content>123</parameter>
+            </function>
+            ```
+
+        tool_schemas (list of dict): 
+            A list of tool schema definitions. Each schema should be a dictionary 
+            with the following structure:
+            ```
+            {
+                "function": {
+                    "name": "function_name",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "parameter_name": {
+                                "type": "str",
+                                "description": "Description of the parameter."
+                            }
+                        },
+                        "required": ["parameter_name"]
+                    }
+                }
+            }
+            ```
+
+    Returns:
+        list of dict: 
+            A list of parsed tool calls. Each tool call is represented as a dictionary 
+            with the following structure:
+            ```
+            {
+                "function": "function_name",
+                "parameters": {
+                    "parameter_name": "parameter_value"
+                }
+            }
+            ```
+
+    Raises:
+        FunctionCallValidationError: 
+            If a function name in the content does not match any tool schema.
+    """
+    tool_calls = []
+    tool_schemas = remove_nest_function(tool_schemas)
+    
+    # 抽取text never used
+    result_map, result_map_reverse = extract_text_never_used_content(content)
+    for match in result_map_reverse:
+        placeholder = result_map_reverse[match]
+        content = content.replace(match, placeholder)
+        
+    # Find all function calls using regex pattern
+    fn_matches = re.finditer(FN_REGEX_PATTERN_V3, content, re.DOTALL)
+
+    parameter_token = "parameter_never_used_51bce0c785ca2f68081bfa7d91973934"
+    for fn_match in fn_matches:
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+        
+        # Find matching tool
+        matching_schema = None
+        for tool_schema in tool_schemas:
+            if tool_schema["name"] == fn_name:
+                matching_schema = tool_schema
+                break
+
+        if not matching_schema:
+            raise FunctionCallValidationError(
+                f"Function '{fn_name}' not found in available tools: {[tool['name'] for tool in tool_schemas]}"
+            )
+        
+        params = parse_structure_to_tree(fn_body, parameter_token)
         params = set_leaf_values(params, result_map)
         
         # Create tool call
@@ -1586,60 +1688,302 @@ def format_transfer(
     final_content = f"{think_content}{begin_tool_call_token}{function_content}{end_tool_call_token}"
     return final_content
 
+def convert_param_value_to_xml(param_value, parameter_name_token, parameter_close_token, indent_level=0):
+    """
+    将参数值转换为XML格式，支持复杂的嵌套结构
+
+    支持的格式：
+    - <object> </object>: JSON对象
+    - <list> </list>: 列表
+    - <text_never_used_51bce0c785ca2f68081bfa7d91973934> </text_never_used_51bce0c785ca2f68081bfa7d91973934>: XML内容
+    - 简单文本: 直接内容（支持多行）
+
+    Args:
+        param_value: 参数值，可以是任何类型
+        indent_level: 缩进级别，用于格式化输出
+
+    Returns:
+        str: 转换后的XML字符串
+    """
+    indent = ""  # 4个空格作为一级缩进
+
+    if isinstance(param_value, dict):
+        # 检查是否为特殊的XML内容标记
+        if len(param_value) == 1 and '_xml_content_' in param_value:
+            # 特殊处理XML内容
+            xml_content = param_value['_xml_content_']
+            return f"{indent}<text_never_used_51bce0c785ca2f68081bfa7d91973934>{indent}{xml_content}{indent}</text_never_used_51bce0c785ca2f68081bfa7d91973934>"
+
+        # 对于普通字典类型，转换为嵌套的XML格式
+        xml_parts = [f"\n{indent}<object>"]
+        for key, value in param_value.items():
+            converted_value = convert_param_value_to_xml(value, parameter_name_token, parameter_close_token, indent_level + 2)
+            if _is_complex_value(converted_value):
+                # 复杂值（包含换行或嵌套结构）
+                xml_parts.append(f"{indent}{parameter_name_token}{key}>{converted_value}{indent}{parameter_close_token}")
+            else:
+                # 简单值
+                xml_parts.append(f"{indent}{parameter_name_token}{key}>{converted_value}{parameter_close_token}")
+        xml_parts.append(f"{indent}</object>")
+        return "".join(xml_parts)
+
+    elif isinstance(param_value, list):
+        # 对于列表类型，转换为包含多个元素的XML格式
+        if len(param_value) == 0:
+            return f"{indent}<list>{indent}</list>"
+
+        xml_parts = [f"{indent}<list>"]
+        for item in param_value:
+            converted_item = convert_param_value_to_xml(item, parameter_name_token, parameter_close_token, indent_level + 2)
+            if _is_complex_value(converted_item):
+                # 复杂项（包含换行或嵌套结构）
+                xml_parts.append(f"{indent}<item>{converted_item}{indent}</item>")
+            else:
+                # 简单项
+                xml_parts.append(f"{indent}<item>{converted_item}</item>")
+        xml_parts.append(f"{indent}</list>")
+        return "".join(xml_parts)
+
+    else:
+        # 对于简单类型（字符串、数字、布尔值等）
+        str_value = str(param_value)
+
+        # 检查是否包含XML标签，如果是则需要特殊处理
+        if _contains_xml_tags(str_value):
+            return f"{indent}<text_never_used_51bce0c785ca2f68081bfa7d91973934>{_indent_text(str_value, indent_level + 1)}{indent}</text_never_used_51bce0c785ca2f68081bfa7d91973934>"
+
+        # 检查是否为多行文本
+        if '\n' in str_value:
+            return f"\n{_indent_text(str_value, indent_level)}"
+
+        return str_value
+
+
+def _is_complex_value(value_str):
+    """检查值是否为复杂值（包含换行或XML标签）"""
+    return '\n' in value_str or value_str.strip().startswith('<')
+
+
+def _contains_xml_tags(text):
+    """检查文本是否包含XML标签或可能干扰XML解析的字符"""
+    import re
+    # 检查是否包含 < 或 > 字符，这些字符可能干扰XML解析
+    # 即使是比较运算符 (<, >, <=, >=) 也需要包装，因为会干扰参数提取
+    return bool(re.search(r'[<>]', text))
+
+
+def _indent_text(text, indent_level):
+    """为多行文本添加缩进"""
+    indent = "    " * indent_level
+    lines = text.split('\n')
+    return ''.join(f"{indent}{line}" if line.strip() else "" for line in lines)
+
+
+def parse_xml_param_value(xml_content):
+    """
+    从XML格式解析参数值回JSON格式
+
+    Args:
+        xml_content: XML格式的参数内容
+
+    Returns:
+        解析后的Python值（dict/list/str/etc）
+    """
+    import re
+
+    # 检查是否以换行符开头（我们的多行文本格式）
+    if xml_content.startswith('\n'):
+        return _normalize_indented_text(xml_content[1:])
+
+    # 否则正常处理
+    xml_content = xml_content.strip()
+
+    # 处理 <object> 标签
+    if xml_content.startswith('<object>') and xml_content.endswith('</object>'):
+        return _parse_xml_object(xml_content)
+
+    # 处理 <list> 标签
+    elif xml_content.startswith('<list>') and xml_content.endswith('</list>'):
+        return _parse_xml_list(xml_content)
+
+    # 处理 <text_never_used_51bce0c785ca2f68081bfa7d91973934> 标签
+    elif '<text_never_used_51bce0c785ca2f68081bfa7d91973934>' in xml_content:
+        text_pattern = r'<text_never_used_51bce0c785ca2f68081bfa7d91973934>(.*?)</text_never_used_51bce0c785ca2f68081bfa7d91973934>'
+        match = re.search(text_pattern, xml_content, re.DOTALL)
+        if match:
+            content = match.group(1)
+            # 移除前后空行和统一缩进
+            return _normalize_indented_text(content)
+
+    # 处理多行文本（检查是否有缩进）
+    if '\n' in xml_content:
+        return _normalize_indented_text(xml_content)
+
+    # 处理简单文本
+    return xml_content
+
+
+def _normalize_indented_text(text):
+    """标准化缩进的文本，移除公共缩进"""
+    lines = text.split('\n')
+
+    # 移除前后空行
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    if not lines:
+        return ""
+
+    # 找到最小缩进（忽略空行）
+    non_empty_lines = [line for line in lines if line.strip()]
+    if not non_empty_lines:
+        return ""
+
+    min_indent = min(len(line) - len(line.lstrip()) for line in non_empty_lines)
+
+    # 移除公共缩进
+    normalized_lines = []
+    for line in lines:
+        if line.strip():  # 非空行
+            normalized_lines.append(line[min_indent:] if len(line) >= min_indent else line)
+        else:  # 空行
+            normalized_lines.append("")
+
+    return ''.join(normalized_lines)
+
+
+def _parse_xml_object(xml_content):
+    """解析XML object标签"""
+    import re
+
+    # 提取object内容
+    content = xml_content[8:-9]  # 移除<object>和</object>
+    result = {}
+
+    # 查找所有parameter标签
+    param_pattern = r'<parameter=([^>]+)>(.*?)</parameter>'
+    matches = re.findall(param_pattern, content, re.DOTALL)
+
+    for param_name, param_content in matches:
+        result[param_name] = parse_xml_param_value(param_content.strip())
+
+    return result
+
+
+def _parse_xml_list(xml_content):
+    """解析XML list标签"""
+    import re
+
+    # 提取list内容
+    content = xml_content[6:-7]  # 移除<list>和</list>
+    result = []
+
+    # 查找所有item标签
+    item_pattern = r'<item>(.*?)</item>'
+    matches = re.findall(item_pattern, content, re.DOTALL)
+
+    for item_content in matches:
+        result.append(parse_xml_param_value(item_content.strip()))
+
+    return result
+
+def make_assistant_response_v3(call):
+    # 构建新格式的工具调用
+    # 检查是否是OpenAI格式 (有id, type, function字段)
+    function_name = call['function']['name']
+    if "parameters" in call['function']:
+        parameters = call['function'].get('parameters', {})
+    else:
+        parameters = call['function'].get('arguments', {})
+
+    # 处理parameters可能是JSON字符串的情况
+    if isinstance(parameters, str):
+        try:
+            parameters = json.loads(parameters)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Error when converting tool call to assistant response: json.loads parameters error: {e}")
+
+    elif not isinstance(parameters, dict) and not isinstance(parameters, list):
+        raise ValueError(f"Error when converting tool call to assistant response: parameters must be a dict or list, but got {type(parameters)}")
+
+    # 特殊情况，处理doubao_code_interpreter (支持多种函数名格式)
     
+    function_name_token = "<function="
+    parameter_name_token = "<parameter="
+    function_close_token = "</function>"
+    parameter_close_token = "</parameter>"
+    function_block = f"{function_name_token}{function_name}>"
+
+    for param_name, param_value in parameters.items():
+        # 使用新的XML转换逻辑处理参数值
+        xml_value = convert_param_value_to_xml(param_value, parameter_name_token, parameter_close_token, indent_level=0)
+        xml_value = _normalize_indented_text(xml_value)
+        function_block += f"{parameter_name_token}{param_name}>{xml_value}{parameter_close_token}"
+
+    function_block += function_close_token
+    return "<seed:tool_call>\n" + function_block + "\n</seed:tool_call>"
+
+def make_assistant_response_v3(call):
+    # 构建新格式的工具调用
+    # 检查是否是OpenAI格式 (有id, type, function字段)
+    function_name = call['function']['name']
+    if "parameters" in call['function']:
+        parameters = call['function'].get('parameters', {})
+    else:
+        parameters = call['function'].get('arguments', {})
+
+    # 处理parameters可能是JSON字符串的情况
+    if isinstance(parameters, str):
+        try:
+            parameters = json.loads(parameters)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Error when converting tool call to assistant response: json.loads parameters error: {e}")
+
+    elif not isinstance(parameters, dict) and not isinstance(parameters, list):
+        raise ValueError(f"Error when converting tool call to assistant response: parameters must be a dict or list, but got {type(parameters)}")
+
+    # 特殊情况，处理doubao_code_interpreter (支持多种函数名格式)
+    
+    function_name_token = "<function_never_used_51bce0c785ca2f68081bfa7d91973934="
+    parameter_name_token = "<parameter_never_used_51bce0c785ca2f68081bfa7d91973934="
+    function_close_token = "</function_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    parameter_close_token = "</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    function_block = f"{function_name_token}{function_name}>"
+
+    for param_name, param_value in parameters.items():
+        # 使用新的XML转换逻辑处理参数值
+        xml_value = convert_param_value_to_xml(param_value, parameter_name_token, parameter_close_token, indent_level=0)
+        xml_value = _normalize_indented_text(xml_value)
+        function_block += f"{parameter_name_token}{param_name}>{xml_value}{parameter_close_token}"
+
+    function_block += function_close_token
+    return "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>\n" + function_block + "\n</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+
 if __name__ == '__main__':
     
-    input_text = """<seed:tool_call><function=notify_human>
-<parameter=attachments>
-<list>
-<item>
-<object>
-<parameter=attachment_name>
-attachment_name_value
-</parameter>
-<parameter=attachment_source>
-attachment_source_value
-</parameter>
-</object>
-</item>
-</list>
-</object>
-</parameter>
-</function></seed:tool_call>"""
+    def replace_special_token(old_text):
+        old_text = old_text.replace("<function=", "<function_never_used_51bce0c785ca2f68081bfa7d91973934=")
+        old_text = old_text.replace("<parameter=", "<parameter_never_used_51bce0c785ca2f68081bfa7d91973934=")
+        old_text = old_text.replace("</function>", "</function_never_used_51bce0c785ca2f68081bfa7d91973934>")
+        old_text = old_text.replace("</parameter>", "</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>")
+        old_text = old_text.replace("<seed:tool_call>", "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>")
+        old_text = old_text.replace("</seed:tool_call>", "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>")
+        return old_text
 
+    input_text = """<think_never_used_51bce0c785ca2f68081bfa7d91973934>哦，刚才的image_generation调用参数错了，prompts应该是数组。现在需要修正，把prompts设为数组，比如["日本TCG市场近10年市场规模趋势图 2015-2025年 折线图 包含宝可梦游戏王海贼王主要卡牌份额占比 配色清晰美观"]，还有width和height设为1024x1024？或者800x600？只要乘积在512*512到1024*1024之间。比如width=1024，height=768，乘积是786432，符合要求。现在重新调用image_generation，参数正确。</think_never_used_51bce0c785ca2f68081bfa7d91973934>
+<seed:tool_call><function=image_generation><parameter=prompts><list><item>日本TCG市场近10年市场规模趋势图 2015-2025年 折线图 包含宝可梦游戏王海贼王主要卡牌份额占比 配色清晰美观</item></list></parameter><parameter=width>1024</parameter><parameter=height>768</parameter></function></seed:tool_call>"""
+
+    # input_text = replace_special_token(input_text)
     tool_schemas = [
-        {
-            "name": "notify_human",
-            "description": "Use this tool whenever you need to deliver files, directories, or web resources to the user.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                "attachments": {
-                    "type": "array",
-                    "description": "Optional list of files or web resources to show the user. Each attachment may reference a local file or directory via an absolute path, or an online resource via an HTTP/HTTPS URL.",
-                    "items": {
-                    "type": "object",
-                    "properties": {
-                        "attachment_name": {
-                        "type": "string",
-                        "description": "Attachment name (or title) shown to the user"
-                        },
-                        "attachment_source": {
-                        "type": "string",
-                        "description": "Absolute path to a local file or directory (folder), or an HTTP/HTTPS URL of an online resource"
-                        }
-                    },
-                    "required": ["attachment_name", "attachment_source"]
-                    }
-                }
-                },
-                "required": ["attachments"]
-            }
-        }
+        {"type": "function", "name": "Search", "description": "Search for reference information", "parameters": {"type": "object", "properties": {"query": {"type": "array", "items": {"type": "string"}, "description": "Search query"}}, "required": ["query"]}}
     ]
     
-    parsed_toolcalls = parse_xml_action_v2(input_text, tool_schemas,)
+    parsed_toolcalls = parse_xml_action_v3(input_text, tool_schemas,)
     print(parsed_toolcalls)
+    json.dump(parsed_toolcalls, open("1.json", "w"), indent=4)
+    print(input_text)
     input()
     
     image_height = 1080
