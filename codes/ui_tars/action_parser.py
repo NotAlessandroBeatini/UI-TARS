@@ -1688,6 +1688,42 @@ def format_transfer(
     final_content = f"{think_content}{begin_tool_call_token}{function_content}{end_tool_call_token}"
     return final_content
 
+def format_transfer_v2(
+    text,
+    think_token,
+    check_valid
+    ):
+    if "Action: hotkey(hotkey='" in text:
+        text = text.replace("Action: hotkey(hotkey='", "Action: hotkey(key='")
+    old_parsed_result, parse_success = parse_action_to_structure_output_v2(text, check_valid)
+    if not parse_success:
+        return None
+    thought = old_parsed_result["thought"]
+    actions = old_parsed_result["actions_remain"]
+    think_content = f"<{think_token}>{thought}</{think_token}>\n"
+    begin_tool_call_token = "<seed:tool_call>"
+    end_tool_call_token = "</seed:tool_call>"
+    function_content = ""
+    for action in actions:
+        action_type = action.action_type.value
+        action_inputs = action.custom_data
+        if "start_box" in action_inputs and "end_box" in action_inputs:
+            action_inputs["start_point"] = action_inputs["start_box"]
+            del action_inputs["start_box"]
+            action_inputs["end_point"] = action_inputs["end_box"]
+            del action_inputs["end_box"]
+        elif "start_box" in action_inputs:
+            action_inputs["point"] = action_inputs["start_box"]
+            del action_inputs["start_box"]
+        
+        function_content += f"<function={action_type}>"
+        for key, value in action_inputs.items():
+            function_str = f"<parameter={key}>{value}</parameter>"
+            function_content += function_str
+        function_content += f"</function>"
+    final_content = f"{think_content}{begin_tool_call_token}{function_content}{end_tool_call_token}"
+    return final_content
+
 def convert_param_value_to_xml(param_value, parameter_name_token, parameter_close_token, indent_level=0):
     """
     将参数值转换为XML格式，支持复杂的嵌套结构

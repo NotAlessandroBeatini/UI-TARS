@@ -1,6 +1,6 @@
 [project]
 name = "ui-tars"
-version = "0.2.1"
+version = "0.3.6"
 description = "Parsing LLM-generated GUI action instructions, automatically generating pyautogui scripts, and supporting coordinate conversion and smart image resizing."
 readme = "README.md"
 authors = [
