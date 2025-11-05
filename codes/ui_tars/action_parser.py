@@ -8,7 +8,6 @@ from copy import deepcopy
 from dataclasses import dataclass
 from collections.abc import Iterable
 from enum import Enum, unique
-from PIL import Image, ImageDraw
 import jsonschema
 from jsonschema import validate
 
@@ -146,35 +145,6 @@ class GUIAction:
         return {
             'type': self.action_type.value,
         } | self.custom_data
-
-    def draw_img(self, img: Image.Image) -> Image.Image:
-        """
-        把这个action画到图片上。 如果action包含点坐标，就画出来点
-        """
-        draw = ImageDraw.Draw(img)
-        if 'start_box' in self.custom_data:
-            start_box = self.custom_data['start_box']  # 这里是相对坐标 0-1之间, 画一个圆点
-            draw.ellipse(
-                (
-                    int(start_box[0] * img.width - 3),
-                    int(start_box[1] * img.height - 3),
-                    int(start_box[0] * img.width + 3),
-                    int(start_box[1] * img.height + 3),
-                ),
-                'red',
-            )
-        if 'end_box' in self.custom_data:
-            end_box = self.custom_data['end_box']  # 这里是相对坐标 0-1之间, 画一个圆点
-            draw.ellipse(
-                (
-                    int(end_box[0] * img.width - 3),
-                    int(end_box[1] * img.height - 3),
-                    int(end_box[0] * img.width + 3),
-                    int(end_box[1] * img.height + 3),
-                ),
-                'blue',
-            )
-        return img
 
     @staticmethod
     def from_json(action_json):
@@ -1268,9 +1238,9 @@ def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
         
         # Create tool call
         tool_calls.append({"function": fn_name, "parameters": params})
-        valid = validate_and_fix_data(matching_schema['parameters'], params)
+        valid, error_info = validate_and_fix_data(matching_schema['parameters'], params)
         if not valid:
-            raise FunctionCallValidationError(f"Schema '{matching_schema}' valid error")
+            raise FunctionCallValidationError(f"Valid error of schema:\n{matching_schema}\nError info: {error_info}")
     return tool_calls
 
 def parse_xml_action_v3(content: str, tool_schemas: list) -> list:
@@ -1345,12 +1315,12 @@ def parse_xml_action_v3(content: str, tool_schemas: list) -> list:
         
     # Find all function calls using regex pattern
     fn_matches = re.finditer(FN_REGEX_PATTERN_V3, content, re.DOTALL)
-
     parameter_token = "parameter_never_used_51bce0c785ca2f68081bfa7d91973934"
+    found = False
     for fn_match in fn_matches:
+        found = True
         fn_name = fn_match.group(1)
         fn_body = fn_match.group(2)
-        
         # Find matching tool
         matching_schema = None
         for tool_schema in tool_schemas:
@@ -1368,9 +1338,11 @@ def parse_xml_action_v3(content: str, tool_schemas: list) -> list:
         
         # Create tool call
         tool_calls.append({"function": fn_name, "parameters": params})
-        valid = validate_and_fix_data(matching_schema['parameters'], params)
+        valid, error_info = validate_and_fix_data(matching_schema['parameters'], params)
         if not valid:
-            raise FunctionCallValidationError(f"Schema '{matching_schema}' valid error")
+            raise FunctionCallValidationError(f"Valid error of schema:\n{matching_schema}\nError info: {error_info}")
+    if "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>" in content and not found:
+        raise RuntimeError(f"Detected tool call token but parse function schema failed with regex: {FN_REGEX_PATTERN_V3}")
     return tool_calls
 
 def validate_and_fix_data(schema, data):
@@ -1394,12 +1366,12 @@ def validate_and_fix_data(schema, data):
                     try:
                         return int(data)
                     except ValueError as e:
-                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an integer.") from e
+                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an integer, but found value {data}.") from e
                 elif expected_type in PARAM_NUMBER_TYPE and isinstance(data, str):
                     try:
                         return float(data)
                     except ValueError as e:
-                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an float number.") from e
+                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an float number, but found value {data}.") from e
                 elif expected_type in PARAM_BOOL_TYPE and isinstance(data, str):
                     try:
                         if data.lower() == "true":
@@ -1410,7 +1382,7 @@ def validate_and_fix_data(schema, data):
                             data = bool(data)
                         return data
                     except ValueError as e:
-                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an boolean.") from e
+                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an boolean, but found value {data}.") from e
 
         # 如果是对象类型，递归修复
         if isinstance(schema, dict) and "properties" in schema and isinstance(data, dict):
@@ -1430,7 +1402,7 @@ def validate_and_fix_data(schema, data):
     try:
         # 尝试直接验证数据
         validate(instance=data, schema=schema)
-        return True
+        return True, ""
     except jsonschema.exceptions.ValidationError as e:
         # 如果验证失败，尝试修复数据类型
         # print(f"Validation Error: {e.message}")
@@ -1439,10 +1411,10 @@ def validate_and_fix_data(schema, data):
         # 再次验证修复后的数据
         try:
             validate(instance=data, schema=schema)
-            return True
+            return True, ""
         except jsonschema.exceptions.ValidationError as e:
             print(f"Validation Error: {e.message}")
-            return False
+            return False, e.message
         
 def actions_valid_checker(actions, action_space_requirement=None):
     """检查action是否符合我们的动作空间定义"""
@@ -2005,22 +1977,62 @@ if __name__ == '__main__':
         old_text = old_text.replace("</function>", "</function_never_used_51bce0c785ca2f68081bfa7d91973934>")
         old_text = old_text.replace("</parameter>", "</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>")
         old_text = old_text.replace("<seed:tool_call>", "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>")
-        old_text = old_text.replace("</seed:tool_call>", "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>")
+        old_text = old_text.replace("</seed:tool_call>", "</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>")
         return old_text
 
-    input_text = """<think_never_used_51bce0c785ca2f68081bfa7d91973934>哦，刚才的image_generation调用参数错了，prompts应该是数组。现在需要修正，把prompts设为数组，比如["日本TCG市场近10年市场规模趋势图 2015-2025年 折线图 包含宝可梦游戏王海贼王主要卡牌份额占比 配色清晰美观"]，还有width和height设为1024x1024？或者800x600？只要乘积在512*512到1024*1024之间。比如width=1024，height=768，乘积是786432，符合要求。现在重新调用image_generation，参数正确。</think_never_used_51bce0c785ca2f68081bfa7d91973934>
-<seed:tool_call><function=image_generation><parameter=prompts><list><item>日本TCG市场近10年市场规模趋势图 2015-2025年 折线图 包含宝可梦游戏王海贼王主要卡牌份额占比 配色清晰美观</item></list></parameter><parameter=width>1024</parameter><parameter=height>768</parameter></function></seed:tool_call>"""
+    input_text = """<gui_think>好的，现在文档内容已经全部选中了。我注意到工具栏上有个背景颜色的按钮，旁边有个小箭头，点击它就能打开颜色选择面板。我需要在里面选择"无填充"选项，这样就能一次性清除所有文字的黄色高亮了。</gui_think>
+<seed:tool_call>
+<function=click>
+<parameter=point><object><parameter=x>539</parameter><parameter=y>130</parameter><parameter=z><list><item>1</item><item>2</item><item>3</item></list></parameter></object></parameter>
+</function>
+</seed:tool_call>"""
 
-    # input_text = replace_special_token(input_text)
+    input_text = replace_special_token(input_text)
+    print(input_text)
     tool_schemas = [
-        {"type": "function", "name": "Search", "description": "Search for reference information", "parameters": {"type": "object", "properties": {"query": {"type": "array", "items": {"type": "string"}, "description": "Search query"}}, "required": ["query"]}}
+        {
+            "type": "function",
+            "name": "click",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "point": {
+                        "type": "object",
+                        "properties": {
+                            "x": {
+                                "type": "integer",
+                                "description": "Click coordinates. The format is: <point>x y</point>"
+                            },
+                            "y": {
+                                "type": "string",
+                                "description": "Click coordinates. The format is: <point>x y</point>"
+                            },
+                            "z": {
+                                "type": "array",
+                                "items": {
+                                    "type": "integer"
+                                },
+                                "description": "搜索 query 的列表"
+                            }
+                        },
+                        "required": [
+                            "x",
+                            "y",
+                            "z"
+                        ]
+                    }
+                },
+                
+            },
+            "description": "Mouse left single click action."
+        }
     ]
     
     parsed_toolcalls = parse_xml_action_v3(input_text, tool_schemas,)
     print(parsed_toolcalls)
     json.dump(parsed_toolcalls, open("1.json", "w"), indent=4)
     print(input_text)
-    input()
+    import pdb;pdb.set_trace()
     
     image_height = 1080
     image_width = 1920
@@ -2041,7 +2053,7 @@ if __name__ == '__main__':
         return re.sub(pattern, replace_match, text).strip()
     content = """<gui_think>我看到左侧的航空公司筛选栏里有个"Other"选项，这应该就是我要找的。毕竟Aer Lingus作为一家欧洲航空公司，很可能被归类在"其他"类别下。让我点击这个复选框，这样就能过滤出更多航班选项，找到符合时间要求的爱尔兰航空航班。</gui_think>\n<seed:tool_call><function=click><parameter=point><function name="click">
 <parameter name="point"><point>34 325</point></parameter>
-</function></parameter></function><function=click><parameter=point><point>123 638</point></parameter></function><function=click><parameter=point><point>223 562</point></parameter></function></seed:tool_call>"""
+</function></parameter></function><function=click><parameter=point><point>123 638</point></parameter></functi><function=click><parameter=point><point>223 562</point></parameter></function></seed:tool_call>"""
     print(convert_point_to_coordinates(content))
     tool_schemas = [
     {

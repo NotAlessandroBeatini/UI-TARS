@@ -1,6 +1,6 @@
 [project]
 name = "ui-tars"
-version = "0.3.6"
+version = "0.3.8"
 description = "Parsing LLM-generated GUI action instructions, automatically generating pyautogui scripts, and supporting coordinate conversion and smart image resizing."
 readme = "README.md"
 authors = [
@@ -8,7 +8,9 @@ authors = [
     { name = "jinxin001", email = "jinxin001@bytedance.com" }
 ]
 requires-python = ">=3.10,<4.0"
-dependencies = []
+dependencies = [
+    "jsonschema",
+]
 
 [build-system]
 requires = ["hatchling"]
