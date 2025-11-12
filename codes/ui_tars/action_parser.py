@@ -1312,7 +1312,6 @@ def parse_xml_action_v3(content: str, tool_schemas: list) -> list:
     for match in result_map_reverse:
         placeholder = result_map_reverse[match]
         content = content.replace(match, placeholder)
-        
     # Find all function calls using regex pattern
     fn_matches = re.finditer(FN_REGEX_PATTERN_V3, content, re.DOTALL)
     parameter_token = "parameter_never_used_51bce0c785ca2f68081bfa7d91973934"
@@ -1395,8 +1394,17 @@ def validate_and_fix_data(schema, data):
             for i in range(len(data)):
                 if "properties" in schema:
                     param_names = list(schema["properties"].keys())
+                if not data[i]:
+                    data[i] = []
                 data[i] = fix_data_types(schema["items"], data[i], param_names)
 
+        if not data:
+            # 如果是空的
+            if isinstance(schema, dict) and "items" in schema:
+                data = []
+            if isinstance(schema, dict) and "properties" in schema:
+                data = {}
+            
         return data
 
     try:
@@ -1980,58 +1988,16 @@ if __name__ == '__main__':
         old_text = old_text.replace("</seed:tool_call>", "</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>")
         return old_text
 
-    input_text = """<gui_think>好的，现在文档内容已经全部选中了。我注意到工具栏上有个背景颜色的按钮，旁边有个小箭头，点击它就能打开颜色选择面板。我需要在里面选择"无填充"选项，这样就能一次性清除所有文字的黄色高亮了。</gui_think>
-<seed:tool_call>
-<function=click>
-<parameter=point><object><parameter=x>539</parameter><parameter=y>130</parameter><parameter=z><list><item>1</item><item>2</item><item>3</item></list></parameter></object></parameter>
-</function>
-</seed:tool_call>"""
+    input_text = """<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=analyze_blood_pressure><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=systolic>150</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=diastolic>95</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=gender>male</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=analyze_blood_sugar><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=value>6.8</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=type>fasting</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=evaluate_headache><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=type>persistent</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=accompanied_symptoms><list><item>dizziness</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=evaluate_cardiac_symptoms><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=symptoms><list><item>chest tightness</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=gender>male</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=analyze_sleep_quality><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=quality>poor</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=related_symptoms><list><item>headache</item><item>memory decline</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=evaluate_cognitive_function><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=symptoms><list><item>memory decline</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=lifestyle_factors><list></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=assess_lifestyle_factors><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=health_issues><list><item>high blood pressure</item><item>high blood sugar</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=symptoms><list><item>persistent headache</item><item>occasional dizziness</item><item>chest tightness</item><item>poor sleep quality</item><item>memory decline</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934></seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>
+"""
 
-    input_text = replace_special_token(input_text)
-    print(input_text)
     tool_schemas = [
-        {
-            "type": "function",
-            "name": "click",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "point": {
-                        "type": "object",
-                        "properties": {
-                            "x": {
-                                "type": "integer",
-                                "description": "Click coordinates. The format is: <point>x y</point>"
-                            },
-                            "y": {
-                                "type": "string",
-                                "description": "Click coordinates. The format is: <point>x y</point>"
-                            },
-                            "z": {
-                                "type": "array",
-                                "items": {
-                                    "type": "integer"
-                                },
-                                "description": "搜索 query 的列表"
-                            }
-                        },
-                        "required": [
-                            "x",
-                            "y",
-                            "z"
-                        ]
-                    }
-                },
-                
-            },
-            "description": "Mouse left single click action."
-        }
+        {"type":"function","function":{"name":"analyze_blood_pressure","description":"分析患者血压数据，评估高血压风险和分级","parameters":{"type":"object","properties":{"systolic":{"description":"收缩压数值","type":"integer"},"diastolic":{"description":"舒张压数值","type":"integer"},"age":{"description":"患者年龄","type":"integer"},"gender":{"description":"患者性别","type":"string"}},"required":["systolic","diastolic","age","gender"]}}},{"type":"function","function":{"name":"analyze_blood_sugar","description":"分析血糖水平，评估糖尿病风险","parameters":{"type":"object","properties":{"value":{"description":"血糖数值","type":"number"},"type":{"description":"血糖类型(fasting/postprandial)","type":"string"},"age":{"description":"患者年龄","type":"integer"}},"required":["value","type","age"]}}},{"type":"function","function":{"name":"evaluate_headache","description":"评估头痛症状，分析可能原因和处理建议","parameters":{"type":"object","properties":{"type":{"description":"头痛类型","type":"string"},"accompanied_symptoms":{"description":"伴随症状列表","type":"array","items":{"type":"string"}},"age":{"description":"患者年龄","type":"integer"}},"required":["type","accompanied_symptoms","age"]}}},{"type":"function","function":{"name":"evaluate_cardiac_symptoms","description":"评估心脏相关症状，分析心血管风险","parameters":{"type":"object","properties":{"symptoms":{"description":"心脏症状列表","type":"array","items":{"type":"string"}},"age":{"description":"患者年龄","type":"integer"},"gender":{"description":"患者性别","type":"string"}},"required":["symptoms","age","gender"]}}},{"type":"function","function":{"name":"analyze_sleep_quality","description":"分析睡眠质量问题及可能影响因素","parameters":{"type":"object","properties":{"quality":{"description":"睡眠质量描述","type":"string"},"age":{"description":"患者年龄","type":"integer"},"related_symptoms":{"description":"相关症状列表","type":"array","items":{"type":"string"}}},"required":["quality","age","related_symptoms"]}}},{"type":"function","function":{"name":"evaluate_cognitive_function","description":"评估认知功能状态，分析记忆问题原因","parameters":{"type":"object","properties":{"symptoms":{"description":"认知症状列表","type":"array","items":{"type":"string"}},"age":{"description":"患者年龄","type":"integer"},"lifestyle_factors":{"description":"生活方式因素列表","type":"array","items":{"type":"string"}}},"required":["symptoms","age","lifestyle_factors"]}}},{"type":"function","function":{"name":"assess_lifestyle_factors","description":"评估生活方式因素对健康的影响及改善建议","parameters":{"type":"object","properties":{"age":{"description":"患者年龄","type":"integer"},"health_issues":{"description":"健康问题列表","type":"array","items":{"type":"string"}},"symptoms":{"description":"症状列表","type":"array","items":{"type":"string"}}},"required":["age","health_issues","symptoms"]}}}
     ]
     
     parsed_toolcalls = parse_xml_action_v3(input_text, tool_schemas,)
     print(parsed_toolcalls)
     json.dump(parsed_toolcalls, open("1.json", "w"), indent=4)
-    print(input_text)
     import pdb;pdb.set_trace()
     
     image_height = 1080
