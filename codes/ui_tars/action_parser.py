@@ -23,7 +23,11 @@ KEY_MAPPING = {
 }
 
 FN_REGEX_PATTERN = r'<function=([^>]+)>\n?(.*?)</function>'
+FN_REGEX_PATTERN_65 = r'<function name="([^>]+)">\n?(.*?)</function>'
 FN_PARAM_REGEX_PATTERN = r'<parameter=([^>]+)>(.*?)</parameter>'
+FN_PARAM_REGEX_PATTERN_06 = r'<parameter=([^, ]+) string="(true|false)">(.*?)</parameter>'
+FN_PARAM_REGEX_PATTERN_65 = r'<parameter name="([^, ]+)" string="(true|false)">(.*?)</parameter>'
+
 
 FN_REGEX_PATTERN_V3 = r'<function_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>\n?(.*?)</function_never_used_51bce0c785ca2f68081bfa7d91973934>'
 FN_PARAM_REGEX_PATTERN_V3 = r'<parameter_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>'
@@ -545,18 +549,20 @@ def parsing_response_to_pyautogui_code(responses,
             content = action_inputs.get("content", "")
             content = escape_single_quotes(content)
             stripped_content = content
-            if content.endswith("\n") or content.endswith("\\n"):
-                stripped_content = stripped_content.rstrip("\\n").rstrip("\n")
+            # if content.endswith("\n") or content.endswith("\\n"):
+            #     stripped_content = stripped_content.rstrip("\\n").rstrip("\n")
             if content:
                 if input_swap:
                     pyautogui_code += f"\nimport pyperclip"
-                    pyautogui_code += f"\npyperclip.copy('{stripped_content}')"
+                    # if "\"" in stripped_content:
+                    #     stripped_content = stripped_content.replace("\"", "\\\"")
+                    pyautogui_code += f'\npyperclip.copy({repr(stripped_content)})'
                     pyautogui_code += f"\npyautogui.hotkey('ctrl', 'v')"
                     pyautogui_code += f"\ntime.sleep(0.5)\n"
                     if content.endswith("\n") or content.endswith("\\n"):
                         pyautogui_code += f"\npyautogui.press('enter')"
                 else:
-                    pyautogui_code += f"\npyautogui.write('{stripped_content}', interval=0.1)"
+                    pyautogui_code += f'\npyautogui.write({repr(stripped_content)}, interval=0.1)'
                     pyautogui_code += f"\ntime.sleep(0.5)\n"
                     if content.endswith("\n") or content.endswith("\\n"):
                         pyautogui_code += f"\npyautogui.press('enter')"
@@ -820,6 +826,33 @@ def _extract_and_validate_params(matching_tool: dict, param_matches: Iterable[re
         raise FunctionCallValidationError(f"Missing required parameters for function '{fn_name}': {missing_params}")
     return params
 
+def _extract_and_validate_params_06(param_matches: Iterable[re.Match]) -> dict:
+    def to_json(value) -> str:
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except:
+            return json.dumps(value, ensure_ascii=True)
+    def _decode_value(key: str, value: str, string: str):
+        if string == "true":
+            value = to_json(value)
+        else:
+            if value.lower() == "false":
+                value = "false"
+            elif value.lower() == "true":
+                value = "true"
+            elif value.lower() == "none" or value.lower() == "null":
+                value = "null"
+        return f"{to_json(key)}:{value}"
+
+    tool_args = {}
+    for param_match in param_matches:
+        parameter_name = param_match.group(1)  # 第一个捕获组：parameter 名称
+        is_str = param_match.group(2)   # 第二个捕获组：string 的值（true/false 或 None）
+        content = param_match.group(3)
+        tool_args[parameter_name] = (content, is_str)
+    tool_args_json = "{" + ", ".join([_decode_value(k, v, string=is_str) for k, (v, is_str) in tool_args.items()]) + "}"
+    return json.loads(tool_args_json)
+    
 def remove_nest_function(tool_schemas):
     new_schemas = []
     for tool_schema in tool_schemas:
@@ -1040,6 +1073,8 @@ def parse_tree(node, input_text, parameter_token):
                 return {node["tag_param"]: [parse_tree(child, input_text, parameter_token) for child in node["children"]]}
         # 如果当前节点是 "list"，返回子节点的列表
         elif node["tag_name"] == "list":
+            if input_text == "\n":
+                return []
             result = [parse_tree(child, input_text, parameter_token) for child in node["children"]]
             # import pdb;pdb.set_trace()
             return result
@@ -1120,6 +1155,42 @@ def extract_text_never_used_content(input_string):
     
     return result_map, result_map_reverse
 
+def extract_type_and_value(input_string):
+    # 定义正则表达式
+    pattern = r"^<type=(\w+)>(.*)</type>$"
+    match = re.match(pattern, input_string)
+    if match:
+        param_type = match.group(1)  # 捕获类型值
+        param_value = match.group(2)  # 捕获参数值
+        return param_type, param_value  # 返回类型和值
+    return None, None  # 如果不匹配，返回 None, None
+
+def convert_param_value(param_type, param_value):
+    """
+    根据 param_type 转换 param_value
+    """
+    try:
+        if param_type == "integer":
+            return int(param_value)  # 转换为整数
+        elif param_type == "float":
+            return float(param_value)  # 转换为浮点数
+        elif param_type == "boolean":
+            # 转换为布尔值，支持 true/false（大小写不敏感）
+            return param_value.lower() == "true"
+        elif param_type == "string":
+            return param_value  # 保持为字符串
+        elif param_type == "array":
+            # 尝试将参数值解析为 Python 列表
+            return json.loads(param_value)
+        elif param_type == "object":
+            # 尝试将参数值解析为 Python 字典
+            return json.loads(param_value)
+        else:
+            raise ValueError(f"未知的参数类型: {param_type}")
+    except Exception as e:
+        print(f"无法将值 '{param_value}' 转换为类型 '{param_type}': {e}")
+        return param_value
+    
 def set_leaf_values(params, result_map):
     """
     遍历嵌套字典，将所有叶子节点的值设置为 1。
@@ -1136,10 +1207,16 @@ def set_leaf_values(params, result_map):
         params = [set_leaf_values(item, result_map) for item in params]
     elif isinstance(params, str):
         # 如果是叶子节点（非字典或列表），将值设置为 1
+        if params.strip().startswith("<type=") and params.strip().endswith("</type>"):
+            param_type, param_value = extract_type_and_value(params)
+            params = convert_param_value(param_type, param_value)
         for placeholder in result_map:
             match = result_map[placeholder]
             params = params.replace(placeholder, match)
     else:
+        if params.strip().startswith("<type=") and params.strip().endswith("</type>"):
+            param_type, param_value = extract_type_and_value(params)
+            params = convert_param_value(param_type, param_value)
         params = params
     return params
 
@@ -1215,9 +1292,10 @@ def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
         
     # Find all function calls using regex pattern
     fn_matches = re.finditer(FN_REGEX_PATTERN, content, re.DOTALL)
-
+    found = False
     parameter_token = "parameter"
     for fn_match in fn_matches:
+        found = True
         fn_name = fn_match.group(1)
         fn_body = fn_match.group(2)
         
@@ -1241,6 +1319,8 @@ def parse_xml_action_v2(content: str, tool_schemas: list) -> list:
         valid, error_info = validate_and_fix_data(matching_schema['parameters'], params)
         if not valid:
             raise FunctionCallValidationError(f"Valid error of schema:\n{matching_schema}\nError info: {error_info}")
+    if "<seed:tool>" in content and not found:
+        raise RuntimeError(f"Detected tool call token but parse function schema failed with regex: {FN_REGEX_PATTERN}")
     return tool_calls
 
 def parse_xml_action_v3(content: str, tool_schemas: list) -> list:
@@ -1342,6 +1422,197 @@ def parse_xml_action_v3(content: str, tool_schemas: list) -> list:
             raise FunctionCallValidationError(f"Valid error of schema:\n{matching_schema}\nError info: {error_info}")
     if "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>" in content and not found:
         raise RuntimeError(f"Detected tool call token but parse function schema failed with regex: {FN_REGEX_PATTERN_V3}")
+    return tool_calls
+
+def parse_xml_action_04(content: str, tool_schemas: list) -> list:
+    """
+    Parse function-style tool calls from the response content.
+
+    Args:
+        content (str): 
+            The XML-like string containing one or more `<function>` blocks. 
+            Each `<function>` block should follow this format:
+            ```
+            <function=function_name>
+                <parameter=parameter_name>parameter_value</parameter>
+            </function>
+            ```
+            Example:
+            ```
+            <function=click>
+                <parameter=point>100 200</parameter>
+            </function>
+            <function=type>
+                <parameter=content>123</parameter>
+            </function>
+            ```
+
+        tool_schemas (list of dict): 
+            A list of tool schema definitions. Each schema should be a dictionary 
+            with the following structure:
+            ```
+            {
+                "function": {
+                    "name": "function_name",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "parameter_name": {
+                                "type": "str",
+                                "description": "Description of the parameter."
+                            }
+                        },
+                        "required": ["parameter_name"]
+                    }
+                }
+            }
+            ```
+
+    Returns:
+        list of dict: 
+            A list of parsed tool calls. Each tool call is represented as a dictionary 
+            with the following structure:
+            ```
+            {
+                "function": "function_name",
+                "parameters": {
+                    "parameter_name": "parameter_value"
+                }
+            }
+            ```
+
+    Raises:
+        FunctionCallValidationError: 
+            If a function name in the content does not match any tool schema.
+    """
+    tool_calls = []
+    tool_schemas = remove_nest_function(tool_schemas)
+    
+    if "<list>\n</list>" in content:
+        content = content.replace("<list>\n</list>", "<list></list>")
+    # 抽取text never used
+    result_map, result_map_reverse = extract_text_never_used_content(content)
+    for match in result_map_reverse:
+        placeholder = result_map_reverse[match]
+        content = content.replace(match, placeholder)
+    # Find all function calls using regex pattern
+    fn_matches = re.finditer(FN_REGEX_PATTERN_V3, content, re.DOTALL)
+    parameter_token = "parameter_never_used_51bce0c785ca2f68081bfa7d91973934"
+    found = False
+    for fn_match in fn_matches:
+        found = True
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+        # Find matching tool
+        matching_schema = None
+        for tool_schema in tool_schemas:
+            if tool_schema["name"] == fn_name:
+                matching_schema = tool_schema
+                break
+
+        if not matching_schema:
+            raise FunctionCallValidationError(
+                f"Function '{fn_name}' not found in available tools: {[tool['name'] for tool in tool_schemas]}"
+            )
+        
+        params = parse_structure_to_tree(fn_body, parameter_token)
+        params = set_leaf_values(params, result_map)
+        
+        # Create tool call
+        tool_calls.append({"function": fn_name, "parameters": params})
+        valid, error_info = validate_and_fix_data(matching_schema['parameters'], params)
+        if not valid:
+            raise FunctionCallValidationError(f"Valid error of schema:\n{matching_schema}\nError info: {error_info}")
+    if "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>" in content and not found:
+        raise RuntimeError(f"Detected tool call token but parse function schema failed with regex: {FN_REGEX_PATTERN_V3}")
+    return tool_calls
+
+def parse_xml_action_v5(content: str) -> list:
+    """
+    Parse function-style tool calls from the response content.
+
+    Args:
+        content (str): 
+            The XML-like string containing one or more `<function>` blocks. 
+            Each `<function>` block should follow this format:
+            ```
+            <function=function_name>
+                <parameter=parameter_name>parameter_value</parameter>
+            </function>
+            ```
+            Example:
+            ```
+            <function=click>
+                <parameter=point>100 200</parameter>
+            </function>
+            <function=type>
+                <parameter=content>123</parameter>
+            </function>
+            ```
+
+        tool_schemas (list of dict): 
+            A list of tool schema definitions. Each schema should be a dictionary 
+            with the following structure:
+            ```
+            {
+                "function": {
+                    "name": "function_name",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "parameter_name": {
+                                "type": "str",
+                                "description": "Description of the parameter."
+                            }
+                        },
+                        "required": ["parameter_name"]
+                    }
+                }
+            }
+            ```
+
+    Returns:
+        list of dict: 
+            A list of parsed tool calls. Each tool call is represented as a dictionary 
+            with the following structure:
+            ```
+            {
+                "function": "function_name",
+                "parameters": {
+                    "parameter_name": "parameter_value"
+                }
+            }
+            ```
+
+    Raises:
+        FunctionCallValidationError: 
+            If a function name in the content does not match any tool schema.
+    """
+    tool_calls = []
+    
+    # 抽取text never used
+    result_map, result_map_reverse = extract_text_never_used_content(content)
+    for match in result_map_reverse:
+        placeholder = result_map_reverse[match]
+        content = content.replace(match, placeholder)
+        
+    # Find all function calls using regex pattern
+    fn_matches = re.finditer(FN_REGEX_PATTERN, content, re.DOTALL)
+    found = False
+    parameter_token = "parameter"
+    for fn_match in fn_matches:
+        found = True
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+        
+        params = parse_structure_to_tree(fn_body, parameter_token)
+        params = set_leaf_values(params, result_map)
+        
+        # Create tool call
+        tool_calls.append({"function": fn_name, "parameters": params})
+        
+    if "<seed:tool>" in content and not found:
+        raise RuntimeError(f"Detected tool call token but parse function schema failed with regex: {FN_REGEX_PATTERN}")
     return tool_calls
 
 def validate_and_fix_data(schema, data):
@@ -1905,77 +2176,129 @@ def _parse_xml_list(xml_content):
 
     return result
 
-def make_assistant_response_v3(call):
-    # 构建新格式的工具调用
-    # 检查是否是OpenAI格式 (有id, type, function字段)
-    function_name = call['function']['name']
-    if "parameters" in call['function']:
-        parameters = call['function'].get('parameters', {})
-    else:
-        parameters = call['function'].get('arguments', {})
+def parse_xml_action_v02(
+    content,
+):
+    FN_REGEX_PATTERN_TMP = r"<function_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</function_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    function_matches = re.finditer(FN_REGEX_PATTERN_TMP, content, re.DOTALL)
+    funciton_calls = []
+    for fn_match in function_matches:
+        FN_PARAM_REGEX_PATTERN_TMP = r"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
 
-    # 处理parameters可能是JSON字符串的情况
-    if isinstance(parameters, str):
-        try:
-            parameters = json.loads(parameters)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Error when converting tool call to assistant response: json.loads parameters error: {e}")
+        arguments = {}
 
-    elif not isinstance(parameters, dict) and not isinstance(parameters, list):
-        raise ValueError(f"Error when converting tool call to assistant response: parameters must be a dict or list, but got {type(parameters)}")
+        for arg_match in re.finditer(FN_PARAM_REGEX_PATTERN_TMP, fn_body, re.DOTALL):
+            arg_name = arg_match.group(1)
+            arg_value = arg_match.group(2)
+            try:
+                arg_value = json.loads(arg_value)
+            except Exception:
+                pass
+            arguments[arg_name] = arg_value
+        funciton_calls.append({"function": fn_name, "parameters": arguments})
+    return funciton_calls
 
-    # 特殊情况，处理doubao_code_interpreter (支持多种函数名格式)
+def parse_xml_action_02sptoken(
+    content,
+):
+    FN_REGEX_PATTERN_TMP = r"<function_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</function_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    function_matches = re.finditer(FN_REGEX_PATTERN_TMP, content, re.DOTALL)
+    funciton_calls = []
+    for fn_match in function_matches:
+        FN_PARAM_REGEX_PATTERN_TMP = r"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+
+        arguments = {}
+
+        for arg_match in re.finditer(FN_PARAM_REGEX_PATTERN_TMP, fn_body, re.DOTALL):
+            arg_name = arg_match.group(1)
+            arg_value = arg_match.group(2)
+            try:
+                arg_value = json.loads(arg_value)
+            except Exception:
+                pass
+            arguments[arg_name] = arg_value
+        funciton_calls.append({"function": fn_name, "parameters": arguments})
+    return funciton_calls
+
+def parse_xml_action_02(
+    content,
+):
+    FN_REGEX_PATTERN_TMP = r"<function=([^>]+)>(.*?)</function>"
+    function_matches = re.finditer(FN_REGEX_PATTERN_TMP, content, re.DOTALL)
+    funciton_calls = []
+    for fn_match in function_matches:
+        FN_PARAM_REGEX_PATTERN_TMP = r"<parameter=([^>]+)>(.*?)</parameter>"
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+
+        arguments = {}
+
+        for arg_match in re.finditer(FN_PARAM_REGEX_PATTERN_TMP, fn_body, re.DOTALL):
+            arg_name = arg_match.group(1)
+            arg_value = arg_match.group(2)
+            try:
+                arg_value = json.loads(arg_value)
+            except Exception:
+                pass
+            arguments[arg_name] = arg_value
+        funciton_calls.append({"function": fn_name, "parameters": arguments})
+    return funciton_calls
+
+def is_single_layer(d):
+    """
+    判断一个字典是否是单层。
+    如果字典的任意值是字典类型，则认为它是多层。
+    """
+    if not isinstance(d, dict):
+        raise ValueError("Input must be a dictionary.")
     
-    function_name_token = "<function="
-    parameter_name_token = "<parameter="
-    function_close_token = "</function>"
-    parameter_close_token = "</parameter>"
-    function_block = f"{function_name_token}{function_name}>"
+    for value in d.values():
+        if isinstance(value, dict):
+            return False  # 存在嵌套的子字典，返回 False
+        elif isinstance(value, list):
+            return False  # 存在嵌套的子列表，返回 False
 
-    for param_name, param_value in parameters.items():
-        # 使用新的XML转换逻辑处理参数值
-        xml_value = convert_param_value_to_xml(param_value, parameter_name_token, parameter_close_token, indent_level=0)
-        xml_value = _normalize_indented_text(xml_value)
-        function_block += f"{parameter_name_token}{param_name}>{xml_value}{parameter_close_token}"
+    return True  # 没有嵌套的子字典，返回 True
 
-    function_block += function_close_token
-    return "<seed:tool_call>\n" + function_block + "\n</seed:tool_call>"
+def parse_xml_action_06(content: str) -> list:
+    """
+    """
+    tool_calls = []
+    # Find all function calls using regex pattern
+    fn_matches = re.finditer(FN_REGEX_PATTERN, content, re.DOTALL)
+    for fn_match in fn_matches:
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+        # Parse parameters
+        param_matches = re.finditer(FN_PARAM_REGEX_PATTERN_06, fn_body, re.DOTALL)
+        params = _extract_and_validate_params_06(param_matches)
 
-def make_assistant_response_v3(call):
-    # 构建新格式的工具调用
-    # 检查是否是OpenAI格式 (有id, type, function字段)
-    function_name = call['function']['name']
-    if "parameters" in call['function']:
-        parameters = call['function'].get('parameters', {})
-    else:
-        parameters = call['function'].get('arguments', {})
+        # Create tool call
+        tool_calls.append({"function": fn_name, "parameters": params})
 
-    # 处理parameters可能是JSON字符串的情况
-    if isinstance(parameters, str):
-        try:
-            parameters = json.loads(parameters)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Error when converting tool call to assistant response: json.loads parameters error: {e}")
+    return tool_calls
 
-    elif not isinstance(parameters, dict) and not isinstance(parameters, list):
-        raise ValueError(f"Error when converting tool call to assistant response: parameters must be a dict or list, but got {type(parameters)}")
+def parse_xml_action_65(content: str) -> list:
+    """
+    """
+    tool_calls = []
+    # Find all function calls using regex pattern
+    fn_matches = re.finditer(FN_REGEX_PATTERN_65, content, re.DOTALL)
+    for fn_match in fn_matches:
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+        # Parse parameters
+        param_matches = re.finditer(FN_PARAM_REGEX_PATTERN_65, fn_body, re.DOTALL)
+        params = _extract_and_validate_params_06(param_matches)
 
-    # 特殊情况，处理doubao_code_interpreter (支持多种函数名格式)
-    
-    function_name_token = "<function_never_used_51bce0c785ca2f68081bfa7d91973934="
-    parameter_name_token = "<parameter_never_used_51bce0c785ca2f68081bfa7d91973934="
-    function_close_token = "</function_never_used_51bce0c785ca2f68081bfa7d91973934>"
-    parameter_close_token = "</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
-    function_block = f"{function_name_token}{function_name}>"
+        # Create tool call
+        tool_calls.append({"name": fn_name, "arguments": params})
 
-    for param_name, param_value in parameters.items():
-        # 使用新的XML转换逻辑处理参数值
-        xml_value = convert_param_value_to_xml(param_value, parameter_name_token, parameter_close_token, indent_level=0)
-        xml_value = _normalize_indented_text(xml_value)
-        function_block += f"{parameter_name_token}{param_name}>{xml_value}{parameter_close_token}"
-
-    function_block += function_close_token
-    return "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>\n" + function_block + "\n</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    return tool_calls
 
 if __name__ == '__main__':
     
@@ -1988,15 +2311,44 @@ if __name__ == '__main__':
         old_text = old_text.replace("</seed:tool_call>", "</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>")
         return old_text
 
-    input_text = """<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=analyze_blood_pressure><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=systolic>150</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=diastolic>95</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=gender>male</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=analyze_blood_sugar><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=value>6.8</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=type>fasting</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=evaluate_headache><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=type>persistent</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=accompanied_symptoms><list><item>dizziness</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=evaluate_cardiac_symptoms><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=symptoms><list><item>chest tightness</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=gender>male</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=analyze_sleep_quality><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=quality>poor</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=related_symptoms><list><item>headache</item><item>memory decline</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=evaluate_cognitive_function><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=symptoms><list><item>memory decline</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=lifestyle_factors><list></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=assess_lifestyle_factors><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=age>45</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=health_issues><list><item>high blood pressure</item><item>high blood sugar</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=symptoms><list><item>persistent headache</item><item>occasional dizziness</item><item>chest tightness</item><item>poor sleep quality</item><item>memory decline</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934></seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>
+    input_text = """用户现在需要我根据教案模板制作小学三年级的体育课教案，主题是跳绳，并且要放在/mnt/outputs目录下。首先，我需要先加载docx-filler这个技能，因为要处理Word模板填充。然后，可能需要先确认模板的情况，但用户没提供模板，不过可能需要先创建或者使用工具来处理。首先第一步应该是加载docx-filler技能，然后再进行后续的模板填充操作。所以先调用LoadSkill工具加载docx-filler技能。<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=LoadSkill><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=skill>docx-filler</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934></seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>
 """
 
     tool_schemas = [
-        {"type":"function","function":{"name":"analyze_blood_pressure","description":"分析患者血压数据，评估高血压风险和分级","parameters":{"type":"object","properties":{"systolic":{"description":"收缩压数值","type":"integer"},"diastolic":{"description":"舒张压数值","type":"integer"},"age":{"description":"患者年龄","type":"integer"},"gender":{"description":"患者性别","type":"string"}},"required":["systolic","diastolic","age","gender"]}}},{"type":"function","function":{"name":"analyze_blood_sugar","description":"分析血糖水平，评估糖尿病风险","parameters":{"type":"object","properties":{"value":{"description":"血糖数值","type":"number"},"type":{"description":"血糖类型(fasting/postprandial)","type":"string"},"age":{"description":"患者年龄","type":"integer"}},"required":["value","type","age"]}}},{"type":"function","function":{"name":"evaluate_headache","description":"评估头痛症状，分析可能原因和处理建议","parameters":{"type":"object","properties":{"type":{"description":"头痛类型","type":"string"},"accompanied_symptoms":{"description":"伴随症状列表","type":"array","items":{"type":"string"}},"age":{"description":"患者年龄","type":"integer"}},"required":["type","accompanied_symptoms","age"]}}},{"type":"function","function":{"name":"evaluate_cardiac_symptoms","description":"评估心脏相关症状，分析心血管风险","parameters":{"type":"object","properties":{"symptoms":{"description":"心脏症状列表","type":"array","items":{"type":"string"}},"age":{"description":"患者年龄","type":"integer"},"gender":{"description":"患者性别","type":"string"}},"required":["symptoms","age","gender"]}}},{"type":"function","function":{"name":"analyze_sleep_quality","description":"分析睡眠质量问题及可能影响因素","parameters":{"type":"object","properties":{"quality":{"description":"睡眠质量描述","type":"string"},"age":{"description":"患者年龄","type":"integer"},"related_symptoms":{"description":"相关症状列表","type":"array","items":{"type":"string"}}},"required":["quality","age","related_symptoms"]}}},{"type":"function","function":{"name":"evaluate_cognitive_function","description":"评估认知功能状态，分析记忆问题原因","parameters":{"type":"object","properties":{"symptoms":{"description":"认知症状列表","type":"array","items":{"type":"string"}},"age":{"description":"患者年龄","type":"integer"},"lifestyle_factors":{"description":"生活方式因素列表","type":"array","items":{"type":"string"}}},"required":["symptoms","age","lifestyle_factors"]}}},{"type":"function","function":{"name":"assess_lifestyle_factors","description":"评估生活方式因素对健康的影响及改善建议","parameters":{"type":"object","properties":{"age":{"description":"患者年龄","type":"integer"},"health_issues":{"description":"健康问题列表","type":"array","items":{"type":"string"}},"symptoms":{"description":"症状列表","type":"array","items":{"type":"string"}}},"required":["age","health_issues","symptoms"]}}}
+        {
+        "type": "function",
+        "name": "type",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Type content. If you want to submit your input, use \n at the end of content."
+                }
+            },
+            "required": [
+                "content"
+            ]
+        },
+        "description": "Type content."
+    }
     ]
     
-    parsed_toolcalls = parse_xml_action_v3(input_text, tool_schemas,)
+    # input_text = replace_special_token(input_text)
+    parsed_toolcalls = parse_xml_action_v02(input_text,)
     print(parsed_toolcalls)
+    input()
+    
+    actions = []
+    for xml_action in parsed_toolcalls:
+        actions.append(
+            {
+                "action_type": xml_action["function"],
+                "action_inputs": xml_action["parameters"]
+            }
+        )
+    result = parsing_response_to_pyautogui_code(actions, 1080, 1920)
+    print(result)
     json.dump(parsed_toolcalls, open("1.json", "w"), indent=4)
     import pdb;pdb.set_trace()
     
@@ -2041,7 +2393,7 @@ if __name__ == '__main__':
             "description": "Mouse left single click action."
         }
     }]
-    parsed_xml_actions = parse_xml_action(content, tool_schemas)
+    parsed_xml_actions = parse_xml_action_v5(content)
     print(parsed_xml_actions)
     # print(a[0]["parameters"]["content"])
     actions = []
@@ -2055,10 +2407,3 @@ if __name__ == '__main__':
     result = parsing_response_to_pyautogui_code(actions, image_height, image_width)
     print(result)
     
-    old_format = "Thought: 点击按钮\nAction: drag(start_point='<point>100 100</point>',end_point='<point>200 300</point>')"
-    new_format = format_transfer(old_format)
-    print("old format: ", old_format)
-    print("new format: ", new_format)
-    
-    a = parse_xml_action(new_format, tool_schemas)
-    print(a)
