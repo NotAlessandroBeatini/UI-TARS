@@ -1119,6 +1119,9 @@ def parse_tree(node, input_text, parameter_token):
         if node["tag_name"] == parameter_token and node["tag_param"]:
             return {node["tag_param"]: value}
         else:
+            if node["tag_name"]=='list':
+                if value.strip() == "":
+                    return []
             return value
     return {}
 
