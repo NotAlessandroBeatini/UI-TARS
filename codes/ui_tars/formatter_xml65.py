@@ -255,7 +255,7 @@ def make_assistant_response(call):
             f"Error when converting tool call to assistant response: parameters must be a dict or list, but got {type(parameters)}"
         )
     
-    function_block += (
+    function_block = (
         f"<function name=\"{function_name}\">"
     )
     if isinstance(parameters, list):
