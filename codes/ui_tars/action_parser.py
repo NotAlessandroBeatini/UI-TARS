@@ -2299,7 +2299,7 @@ def parse_xml_action_65(content: str) -> list:
         params = _extract_and_validate_params_06(param_matches)
 
         # Create tool call
-        tool_calls.append({"name": fn_name, "arguments": params})
+        tool_calls.append({"function": fn_name, "arguments": params})
 
     return tool_calls
 
