@@ -261,17 +261,11 @@ def make_assistant_response(call):
     if isinstance(parameters, list):
         function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
     elif isinstance(parameters, dict):
-        is_single_dict = is_single_layer(parameters)
-        if is_single_dict:
-            for param_name, param_value in parameters.items():
-                # 使用新的XML转换逻辑处理参数值
+        for param_name, param_value in parameters.items():
+            if isinstance(param_value, str):
                 function_block += f"""<parameter name="{param_name}" string="true">{param_value}</parameter>"""
-        else:
-            for param_name, param_value in parameters.items():
-                if isinstance(param_value, str):
-                    function_block += f"""<parameter name="{param_name}" string="true">{param_value}</parameter>"""
-                else:
-                    function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
+            else:
+                function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
                 
     function_block += "</function>"
     return (
@@ -314,17 +308,11 @@ def make_assistant_responses(calls):
         if isinstance(parameters, list):
             function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
         elif isinstance(parameters, dict):
-            is_single_dict = is_single_layer(parameters)
-            if is_single_dict:
-                for param_name, param_value in parameters.items():
-                    # 使用新的XML转换逻辑处理参数值
+            for param_name, param_value in parameters.items():
+                if isinstance(param_value, str):
                     function_block += f"""<parameter name="{param_name}" string="true">{param_value}</parameter>"""
-            else:
-                for param_name, param_value in parameters.items():
-                    if isinstance(param_value, str):
-                        function_block += f"""<parameter name="{param_name}" string="true">{param_value}</parameter>"""
-                    else:
-                        function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
+                else:
+                    function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
                     
         function_block += "</function>"
     return (
@@ -357,5 +345,12 @@ if __name__ == "__main__":
     print(json.dumps(response))
     
     from action_parser import parse_xml_action_65
+    response = "<seed:tool_call><function name=\"doubao_code_interpreter\"><parameter name=\"code\" string=\"false\">{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}</parameter><parameter name=\"language\" string=\"false\">true</parameter><parameter name=\"index\" string=\"false\">1</parameter><parameter name=\"text\" string=\"true\">this is a test</parameter><parameter name=\"chunks\" string=\"false\">[\"block1\", \"block2\"]</parameter></function></seed:tool_call>"
+    print(response)
+    
     tool_calls = parse_xml_action_65(response)
-    print(tool_calls)
+    test_calls = [{"type": "function", "function": {"name": call["function"], "arguments": call["parameters"]}} for call in tool_calls]
+    
+    # 校验
+    assert len(test_calls) > 0
+    print(test_calls)

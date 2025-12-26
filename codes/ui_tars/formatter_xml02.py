@@ -354,5 +354,9 @@ if __name__ == "__main__":
     
     from action_parser import parse_xml_action_02
 
+    response = """<seed:tool_call><function=doubao_code_interpreter><parameter=code>{"name": "code", "value": "print('Hello,\n\n\\n World!')"}</parameter><parameter=language>True</parameter><parameter=index>1</parameter><parameter=text>this is a test</parameter><parameter=chunks>["block1", "block2"]</parameter></function></seed:tool_call>"""
+    print(response)
+    
     tool_calls = parse_xml_action_02(response)
-    print(tool_calls)
+    test_calls = [{"type": "function", "function": {"name": call["function"], "arguments": call["parameters"]}} for call in tool_calls]
+    print(test_calls)
