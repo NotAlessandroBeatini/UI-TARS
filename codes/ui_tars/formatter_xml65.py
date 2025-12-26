@@ -255,25 +255,23 @@ def make_assistant_response(call):
             f"Error when converting tool call to assistant response: parameters must be a dict or list, but got {type(parameters)}"
         )
     
-    function_block = (
-        f"<function={function_name}>"
+    function_block += (
+        f"<function name=\"{function_name}\">"
     )
     if isinstance(parameters, list):
-        xml_value = json.dumps(parameters, ensure_ascii=False)
-        function_block += f"<parameter={param_name} string=\"false\">{to_json(xml_value)}</parameter>"
+        function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
     elif isinstance(parameters, dict):
         is_single_dict = is_single_layer(parameters)
         if is_single_dict:
             for param_name, param_value in parameters.items():
                 # 使用新的XML转换逻辑处理参数值
-                xml_value = param_value
-                function_block += f"<parameter={param_name} string=\"true\">{xml_value}</parameter>"
+                function_block += f"""<parameter name="{param_name}" string="true">{param_value}</parameter>"""
         else:
             for param_name, param_value in parameters.items():
                 if isinstance(param_value, str):
-                    function_block += f"<parameter={param_name} string=\"true\">{xml_value}</parameter>"
+                    function_block += f"""<parameter name="{param_name}" string="true">{param_value}</parameter>"""
                 else:
-                    function_block += f"<parameter={param_name} string=\"false\">{to_json(xml_value)}</parameter>"
+                    function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
                 
     function_block += "</function>"
     return (
@@ -356,7 +354,7 @@ if __name__ == "__main__":
     ]
 
     response = make_assistant_responses(test_calls)
-    print(response)
+    print(json.dumps(response))
     
     from action_parser import parse_xml_action_65
     tool_calls = parse_xml_action_65(response)
