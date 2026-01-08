@@ -345,7 +345,7 @@ if __name__ == "__main__":
     print(json.dumps(response))
     
     from action_parser import parse_xml_action_65
-    response = "<seed:tool_call><function name=\"doubao_code_interpreter\"><parameter name=\"code\" string=\"false\">{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}</parameter><parameter name=\"language\" string=\"false\">true</parameter><parameter name=\"index\" string=\"false\">1</parameter><parameter name=\"text\" string=\"true\">this is a test</parameter><parameter name=\"chunks\" string=\"false\">[\"block1\", \"block2\"]</parameter></function></seed:tool_call>"
+    response = '''<think_never_used_51bce0c785ca2f68081bfa7d91973934>Wait, let's go back to the user's exact wording: "incorporated between 1945 and 1947 (inclusive) and was renamed twice before 1988". So: - Incorporated: 1945, 1946, or 1947. - Renamed twice (so two name change events) before 1988 (so both renames by 1987 at latest). Let's search for "museum established 1947 renamed twice site:wikipedia.org".</think_never_used_51bce0c785ca2f68081bfa7d91973934><seed:tool_call><function name="Search"><parameter name="query" string="true">"established" 1947 museum renamed twice site:wikipedia.org</parameter></function></seed:tool_call>'''
     print(response)
     
     tool_calls = parse_xml_action_65(response)

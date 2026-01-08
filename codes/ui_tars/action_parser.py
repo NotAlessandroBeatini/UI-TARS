@@ -1656,7 +1656,11 @@ def validate_and_fix_data(schema, data):
                         return data
                     except ValueError as e:
                         raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an boolean, but found value {data}.") from e
-
+                elif expected_type in PARAM_ARRAY_TYPE + PARAM_OBJECT_TYPE and isinstance(data, str):
+                    try:
+                        return json.loads(data)
+                    except ValueError as e:
+                        raise FunctionCallValidationError(f"Parameter '{param_name}' is expected to be an array or object, but found value {data}.") from e
         # 如果是对象类型，递归修复
         if isinstance(schema, dict) and "properties" in schema and isinstance(data, dict):
             for key, subschema in schema["properties"].items():
@@ -1678,7 +1682,7 @@ def validate_and_fix_data(schema, data):
                 data = []
             if isinstance(schema, dict) and "properties" in schema:
                 data = {}
-            
+
         return data
 
     try:
