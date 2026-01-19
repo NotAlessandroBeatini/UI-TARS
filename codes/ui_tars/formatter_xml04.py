@@ -305,50 +305,9 @@ if __name__ == "__main__":
 
     from action_parser import parse_xml_action_04
     
-    tool_schemas = [
-        {
-            "type": "function",
-            "name": "doubao_code_interpreter",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                        "type": "string"
-                        },
-                        "value": {
-                        "type": "string"
-                        }
-                    },
-                    "required": ["name", "value"]
-                    },
-                    "language": {
-                    "type": "boolean"
-                    },
-                    "index": {
-                    "type": "integer"
-                    },
-                    "text": {
-                    "type": "string"
-                    },
-                    "chunks": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                    }
-                },
-                "required": ["code", "language", "index", "text", "chunks"]
-            },
-            "description": "Type content."
-        }
-    ]
+    tool_schemas = [{'type': 'function', 'function': {'name': 'image_search', 'description': 'Search and retrieve ranked image snippets for a given query. Returns image URLs with source context.', 'parameters': {'type': 'object', 'properties': {'query': {'type': 'string', 'description': 'Natural language query describing target images (e.g., “labubuu2026款”, “iPhone 17系列”).'}}, 'required': ['query']}}}, {'type': 'function', 'function': {'name': 'general_search', 'description': 'General web search focused on multimodal snippets. Returns images when available, plus document metadata.你可以对检索到的文本进行“信源分级”与“信息清洗”，确保关键词精准、可信、具备视觉/事实价值。本次返回的结果列表，长度最多为3（3个文档结果），每个结果包含标题、站点名、内容片段和网页发布时间等。', 'parameters': {'type': 'object', 'properties': {'query': {'type': 'string', 'description': 'Broad web query for discovering relevant pages and media. （eg., "北京天气"）'}}, 'required': ['query']}}}, {'type': 'function', 'function': {'name': 'image_zoom_in', 'description': '这是图片放大工具，用于裁剪并放大图片的指定区域，以便更清晰地查看图片细节或文字。主要用于从图片中选取合适的主体等情况', 'parameters': {'type': 'object', 'properties': {'reference_id': {'type': 'string', 'description': '待放大图片的image reference_id'}, 'coord': {'type': 'string', 'description': 'Coordinates of bounding boxes to draw or crop. Each bounding box is written as <bbox>x1 y1 x2 y2</bbox>, where x and y are integers from 0 to 999. The origin (0,0) is the top-left corner, with the x-axis to the right and the y-axis downward. The bottom-right corner is (999, 999). Use the 0–999 coordinate system defined here for this argument, even if another coordinate system is shown in the image. If multiple bboxes exist, fill in <bbox>x1 y1 x2 y2</bbox><bbox>x3 y3 x4 y4</bbox>...'}}, 'required': ['reference_id', 'coord']}}}]
     
-    response = '''<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=doubao_code_interpreter><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=code><object><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=name>code</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=value>print('Hello,
-
-\\n World!')</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></object></parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=language>True</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=index>1</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=text>this is a test</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=chunks><list><item>block1</item><item>block2</item></list></parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934></seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>'''
+    response = '''<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=image_zoom_in><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=reference_id>222</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=coord>111</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934></seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>'''
     tool_calls = parse_xml_action_04(response, tool_schemas)
     test_calls = [{"type": "function", "function": {"name": call["function"], "arguments": call["parameters"]}} for call in tool_calls]
     print(test_calls)

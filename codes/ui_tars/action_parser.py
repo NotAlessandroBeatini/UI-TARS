@@ -1390,6 +1390,16 @@ def parse_xml_action_v3(content: str, tool_schemas: list) -> list:
     tool_calls = []
     tool_schemas = remove_nest_function(tool_schemas)
     
+    # # 正则表达式
+    # pattern = r"<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>(.*?)</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+
+    # # 使用 re.findall 提取内容
+    # matches = re.findall(pattern, content, re.DOTALL)
+    # if len(matches) <=0 :
+    #     raise RuntimeError(f"Fail to extract function between <seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934> and </seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934> token.")
+    # else:
+    #     content = matches[0]
+        
     # 抽取text never used
     result_map, result_map_reverse = extract_text_never_used_content(content)
     for match in result_map_reverse:
@@ -1490,6 +1500,16 @@ def parse_xml_action_04(content: str, tool_schemas: list) -> list:
     """
     tool_calls = []
     tool_schemas = remove_nest_function(tool_schemas)
+    
+    # # 正则表达式
+    # pattern = r"<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>(.*?)</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+
+    # # 使用 re.findall 提取内容
+    # matches = re.findall(pattern, content, re.DOTALL)
+    # if len(matches) <=0 :
+    #     raise RuntimeError(f"Fail to extract function between <seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934> and </seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934> token.")
+    # else:
+    #     content = matches[0]
     
     if "<list>\n</list>" in content:
         content = content.replace("<list>\n</list>", "<list></list>")

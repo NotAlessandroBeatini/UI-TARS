@@ -338,6 +338,20 @@ if __name__ == "__main__":
                     "chunks": ["block1", "block2"]
                 },
             }
+        },
+        {
+            "id": "call_123",
+            "type": "function",
+            "function": {
+                "name": "doubao_code_interpreter",
+                "arguments": {
+                    "code": {"name": "code", "value": "print('Hello,\n\n\\n World!')"},
+                    "language": True,
+                    "index": 1,
+                    "text": "this is a test",
+                    "chunks": ["block1", "block2"]
+                },
+            }
         }
     ]
 
@@ -345,7 +359,7 @@ if __name__ == "__main__":
     print(json.dumps(response))
     
     from action_parser import parse_xml_action_65
-    response = '''<think_never_used_51bce0c785ca2f68081bfa7d91973934>Wait, let's go back to the user's exact wording: "incorporated between 1945 and 1947 (inclusive) and was renamed twice before 1988". So: - Incorporated: 1945, 1946, or 1947. - Renamed twice (so two name change events) before 1988 (so both renames by 1987 at latest). Let's search for "museum established 1947 renamed twice site:wikipedia.org".</think_never_used_51bce0c785ca2f68081bfa7d91973934><seed:tool_call><function name="Search"><parameter name="query" string="true">"established" 1947 museum renamed twice site:wikipedia.org</parameter></function></seed:tool_call>'''
+    # response = '''<think_never_used_51bce0c785ca2f68081bfa7d91973934>Wait, let's go back to the user's exact wording: "incorporated between 1945 and 1947 (inclusive) and was renamed twice before 1988". So: - Incorporated: 1945, 1946, or 1947. - Renamed twice (so two name change events) before 1988 (so both renames by 1987 at latest). Let's search for "museum established 1947 renamed twice site:wikipedia.org".</think_never_used_51bce0c785ca2f68081bfa7d91973934><seed:tool_call><function name="Search"><parameter name="query" string="true">"established" 1947 museum renamed twice site:wikipedia.org</parameter></function></seed:tool_call>'''
     print(response)
     
     tool_calls = parse_xml_action_65(response)
