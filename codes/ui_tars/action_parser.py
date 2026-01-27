@@ -2332,6 +2332,46 @@ def parse_xml_action_02sptoken_with_validate(
         funciton_calls.append({"function": fn_name, "parameters": arguments})
     return funciton_calls
 
+def parse_xml_action_02sptoken_with_validate_soft(
+    content,
+    tool_schemas
+):
+    tool_schemas = remove_nest_function(tool_schemas)
+    FN_REGEX_PATTERN_TMP = r"<function_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</function_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    function_matches = re.finditer(FN_REGEX_PATTERN_TMP, content, re.DOTALL)
+    funciton_calls = []
+    for fn_match in function_matches:
+        FN_PARAM_REGEX_PATTERN_TMP = r"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+
+        matching_schema = None
+        for tool_schema in tool_schemas:
+            if tool_schema["name"] == fn_name:
+                matching_schema = tool_schema
+                break
+        if matching_schema is None:
+            raise RuntimeError(f"Can not match tool schema with tool name: {fn_name}")
+        
+        arguments = {}
+        for arg_match in re.finditer(FN_PARAM_REGEX_PATTERN_TMP, fn_body, re.DOTALL):
+            arg_name = arg_match.group(1)
+            arg_value = arg_match.group(2)
+            try:
+                arg_value = json.loads(arg_value)
+            except Exception as e:
+                pass
+            arguments[arg_name] = arg_value
+            arguments[arg_name] = type_conversion(matching_schema, arg_name, arg_value)
+        try:
+            validate(instance=arguments, schema=matching_schema['parameters'])
+        except Exception as e:
+            print(f"Schema validate error: {e}")
+            pass
+            
+        funciton_calls.append({"function": fn_name, "parameters": arguments})
+    return funciton_calls
+
 def parse_xml_action_02(
     content,
 ):
@@ -2441,6 +2481,70 @@ def parse_xml_action_65(content: str) -> list:
         params = _extract_and_validate_params_06(param_matches)
 
         # Create tool call
+        tool_calls.append({"function": fn_name, "parameters": params})
+
+    return tool_calls
+
+def parse_xml_action_65_with_validate(content: str, tool_schemas: list) -> list:
+    """
+    """
+    tool_schemas = remove_nest_function(tool_schemas)
+    tool_calls = []
+    # Find all function calls using regex pattern
+    fn_matches = re.finditer(FN_REGEX_PATTERN_65, content, re.DOTALL)
+    for fn_match in fn_matches:
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+        
+        matching_schema = None
+        for tool_schema in tool_schemas:
+            if tool_schema["name"] == fn_name:
+                matching_schema = tool_schema
+                break
+            
+        if matching_schema is None:
+            raise RuntimeError(f"Can not match tool schema with tool name: {fn_name}")
+        
+        # Parse parameters
+        param_matches = re.finditer(FN_PARAM_REGEX_PATTERN_65, fn_body, re.DOTALL)
+        params = _extract_and_validate_params_06(param_matches)
+
+        # Create tool call
+        validate(instance=params, schema=matching_schema['parameters'])
+        tool_calls.append({"function": fn_name, "parameters": params})
+
+    return tool_calls
+
+def parse_xml_action_65_with_validate_soft(content: str, tool_schemas: list) -> list:
+    """
+    """
+    tool_schemas = remove_nest_function(tool_schemas)
+    tool_calls = []
+    # Find all function calls using regex pattern
+    fn_matches = re.finditer(FN_REGEX_PATTERN_65, content, re.DOTALL)
+    for fn_match in fn_matches:
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+        
+        matching_schema = None
+        for tool_schema in tool_schemas:
+            if tool_schema["name"] == fn_name:
+                matching_schema = tool_schema
+                break
+            
+        if matching_schema is None:
+            raise RuntimeError(f"Can not match tool schema with tool name: {fn_name}")
+        
+        # Parse parameters
+        param_matches = re.finditer(FN_PARAM_REGEX_PATTERN_65, fn_body, re.DOTALL)
+        params = _extract_and_validate_params_06(param_matches)
+
+        # Create tool call
+        try:
+            validate(instance=params, schema=matching_schema['parameters'])
+        except Exception as e:
+            print(f"Schema validate error: {e}")
+            pass
         tool_calls.append({"function": fn_name, "parameters": params})
 
     return tool_calls

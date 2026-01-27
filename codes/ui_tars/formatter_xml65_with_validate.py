@@ -231,6 +231,11 @@ def is_single_layer(d):
     return True  # 没有嵌套的子字典，返回 True
 
 def make_assistant_response(call):
+    def to_json(value) -> str:
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except:
+            return json.dumps(value, ensure_ascii=True)
     # 构建新格式的工具调用
     # 检查是否是OpenAI格式 (有id, type, function字段)
     function_name = call["function"]["name"]
@@ -251,27 +256,17 @@ def make_assistant_response(call):
         )
     
     function_block = (
-        f"<function={function_name}>"
+        f"<function name=\"{function_name}\">"
     )
     if isinstance(parameters, list):
-        xml_value = json.dumps(parameters, ensure_ascii=False)
-        function_block += f"<parameter={param_name}>{xml_value}</parameter>"
+        function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
     elif isinstance(parameters, dict):
-        is_single_dict = is_single_layer(parameters)
-        if is_single_dict:
-            for param_name, param_value in parameters.items():
-                # 使用新的XML转换逻辑处理参数值
-                xml_value = param_value
-                function_block += f"<parameter={param_name}>{xml_value}</parameter>"
-        else:
-            for param_name, param_value in parameters.items():
-                if isinstance(param_value, dict):
-                    xml_value = json.dumps(param_value, ensure_ascii=False)
-                elif isinstance(param_value, list):
-                    xml_value = json.dumps(param_value, ensure_ascii=False)
-                else:
-                    xml_value = param_value
-                function_block += f"<parameter={param_name}>{xml_value}</parameter>"
+        for param_name, param_value in parameters.items():
+            if isinstance(param_value, str):
+                function_block += f"""<parameter name="{param_name}" string="true">{param_value}</parameter>"""
+            else:
+                function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
+                
     function_block += "</function>"
     return (
         "<seed:tool_call>"
@@ -280,10 +275,16 @@ def make_assistant_response(call):
     )
 
 def make_assistant_responses(calls):
-    # 构建新格式的工具调用
-    # 检查是否是OpenAI格式 (有id, type, function字段)
+    def to_json(value) -> str:
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except:
+            return json.dumps(value, ensure_ascii=True)
+    
     function_block = ""
     for call in calls:
+        # 构建新格式的工具调用
+        # 检查是否是OpenAI格式 (有id, type, function字段)
         function_name = call["function"]["name"]
         parameters = call["function"].get("arguments", {})
 
@@ -301,28 +302,18 @@ def make_assistant_responses(calls):
                 f"Error when converting tool call to assistant response: parameters must be a dict or list, but got {type(parameters)}"
             )
         
-        function_block = (
-            f"<function={function_name}>"
+        function_block += (
+            f"<function name=\"{function_name}\">"
         )
         if isinstance(parameters, list):
-            xml_value = json.dumps(parameters, ensure_ascii=False)
-            function_block += f"<parameter={param_name}>{xml_value}</parameter>"
+            function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
         elif isinstance(parameters, dict):
-            is_single_dict = is_single_layer(parameters)
-            if is_single_dict:
-                for param_name, param_value in parameters.items():
-                    # 使用新的XML转换逻辑处理参数值
-                    xml_value = param_value
-                    function_block += f"<parameter={param_name}>{xml_value}</parameter>"
-            else:
-                for param_name, param_value in parameters.items():
-                    if isinstance(param_value, dict):
-                        xml_value = json.dumps(param_value, ensure_ascii=False)
-                    elif isinstance(param_value, list):
-                        xml_value = json.dumps(param_value, ensure_ascii=False)
-                    else:
-                        xml_value = param_value
-                    function_block += f"<parameter={param_name}>{xml_value}</parameter>"
+            for param_name, param_value in parameters.items():
+                if isinstance(param_value, str):
+                    function_block += f"""<parameter name="{param_name}" string="true">{param_value}</parameter>"""
+                else:
+                    function_block += f"""<parameter name="{param_name}" string="false">{to_json(param_value)}</parameter>"""
+                    
         function_block += "</function>"
     return (
         "<seed:tool_call>"
@@ -332,7 +323,22 @@ def make_assistant_responses(calls):
 
 if __name__ == "__main__":
     # 测试工具调用
+
     test_calls = [
+        {
+            "id": "call_123",
+            "type": "function",
+            "function": {
+                "name": "doubao_code_interpreter",
+                "arguments": {
+                    "code": {"name": "code", "value": "print('Hello,\n\n\\n World!')"},
+                    "language": True,
+                    "index": 1,
+                    "text": "this is a test",
+                    "chunks": ["block1", "block2"]
+                },
+            }
+        },
         {
             "id": "call_123",
             "type": "function",
@@ -349,14 +355,6 @@ if __name__ == "__main__":
         }
     ]
 
-    response = make_assistant_responses(test_calls)
-    print(json.dumps(response))
-    
-    from action_parser import parse_xml_action_02_with_validate
-
-    response = "<seed:tool_call><function=doubao_code_interpreter><parameter=code>{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}</parameter><parameter=language>True</parameter><parameter=index>1</parameter><parameter=text>this is a test</parameter><parameter=chunks>[\"block1\", \"block2\"]</parameter></function></seed:tool_call>"
-    print(response)
-    
     tool_schemas = [
         {
             "type": "function",
@@ -380,7 +378,7 @@ if __name__ == "__main__":
                     "type": "boolean"
                     },
                     "index": {
-                    "type": "string"
+                    "type": "integer"
                     },
                     "text": {
                     "type": "string"
@@ -398,6 +396,16 @@ if __name__ == "__main__":
         }
     ]
     
-    tool_calls = parse_xml_action_02_with_validate(response, tool_schemas)
+    response = make_assistant_responses(test_calls)
+    print(json.dumps(response))
+    
+    from action_parser import parse_xml_action_65_with_validate
+    # response = '''<think_never_used_51bce0c785ca2f68081bfa7d91973934>Wait, let's go back to the user's exact wording: "incorporated between 1945 and 1947 (inclusive) and was renamed twice before 1988". So: - Incorporated: 1945, 1946, or 1947. - Renamed twice (so two name change events) before 1988 (so both renames by 1987 at latest). Let's search for "museum established 1947 renamed twice site:wikipedia.org".</think_never_used_51bce0c785ca2f68081bfa7d91973934><seed:tool_call><function name="Search"><parameter name="query" string="true">"established" 1947 museum renamed twice site:wikipedia.org</parameter></function></seed:tool_call>'''
+    print(response)
+    
+    tool_calls = parse_xml_action_65_with_validate(response, tool_schemas)
     test_calls = [{"type": "function", "function": {"name": call["function"], "arguments": call["parameters"]}} for call in tool_calls]
+    
+    # 校验
+    assert len(test_calls) > 0
     print(test_calls)

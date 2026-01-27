@@ -387,7 +387,7 @@ if __name__ == "__main__":
                     "type": "string"
                     },
                     "chunks": {
-                    "type": "string",
+                    "type": "array",
                     "items": {
                         "type": "string"
                     }
