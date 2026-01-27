@@ -2251,6 +2251,87 @@ def parse_xml_action_02sptoken(
         funciton_calls.append({"function": fn_name, "parameters": arguments})
     return funciton_calls
 
+def get_type(tool: dict, name: str):
+    if (
+        tool is not None
+        and "parameters" in tool
+        and "properties" in tool["parameters"]
+        and isinstance(tool["parameters"]["properties"], dict)
+        and name in tool["parameters"]["properties"]
+        and isinstance(tool["parameters"]["properties"][name], dict)
+        and "type" in tool["parameters"]["properties"][name]
+    ):
+        type_ = tool["parameters"]["properties"][name]["type"]
+        if type_ in PARAM_INT_TYPE:
+            return int
+        if type_ in PARAM_NUMBER_TYPE:
+            return float
+        if type_ in PARAM_STRING_TYPE:
+            return str
+        if type_ in PARAM_BOOL_TYPE:
+            return bool
+        if type_ in PARAM_OBJECT_TYPE:
+            return object
+        if type_ in PARAM_ARRAY_TYPE:
+            return list
+    return str
+
+def type_conversion(tool: dict, name: str, value: str):
+    type_ = get_type(tool, name)
+    try:
+        if type_ is int:
+            return int(value)
+        if type_ is float:
+            return float(value)
+        if type_ is bool:
+            if value.lower() == "true":
+                return True
+            if value.lower() == "false":
+                return False
+        if type_ is object:
+            return json.loads(value)
+        if type_ is str:
+            return str(value)
+    except Exception:
+        pass
+    return value
+    
+def parse_xml_action_02sptoken_with_validate(
+    content,
+    tool_schemas
+):
+    tool_schemas = remove_nest_function(tool_schemas)
+    FN_REGEX_PATTERN_TMP = r"<function_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</function_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    function_matches = re.finditer(FN_REGEX_PATTERN_TMP, content, re.DOTALL)
+    funciton_calls = []
+    for fn_match in function_matches:
+        FN_PARAM_REGEX_PATTERN_TMP = r"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934=([^>]+)>(.*?)</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+
+        matching_schema = None
+        for tool_schema in tool_schemas:
+            if tool_schema["name"] == fn_name:
+                matching_schema = tool_schema
+                break
+        if matching_schema is None:
+            raise RuntimeError(f"Can not match tool schema with tool name: {fn_name}")
+        
+        arguments = {}
+        for arg_match in re.finditer(FN_PARAM_REGEX_PATTERN_TMP, fn_body, re.DOTALL):
+            arg_name = arg_match.group(1)
+            arg_value = arg_match.group(2)
+            try:
+                arg_value = json.loads(arg_value)
+            except Exception as e:
+                pass
+            arguments[arg_name] = arg_value
+            arguments[arg_name] = type_conversion(matching_schema, arg_name, arg_value)
+        
+        validate(instance=arguments, schema=matching_schema['parameters'])
+        funciton_calls.append({"function": fn_name, "parameters": arguments})
+    return funciton_calls
+
 def parse_xml_action_02(
     content,
 ):
@@ -2272,6 +2353,43 @@ def parse_xml_action_02(
             except Exception:
                 pass
             arguments[arg_name] = arg_value
+        funciton_calls.append({"function": fn_name, "parameters": arguments})
+    return funciton_calls
+
+def parse_xml_action_02_with_validate(
+    content,
+    tool_schemas
+):
+    tool_schemas = remove_nest_function(tool_schemas)
+    FN_REGEX_PATTERN_TMP = r"<function=([^>]+)>(.*?)</function>"
+    function_matches = re.finditer(FN_REGEX_PATTERN_TMP, content, re.DOTALL)
+    funciton_calls = []
+    for fn_match in function_matches:
+        FN_PARAM_REGEX_PATTERN_TMP = r"<parameter=([^>]+)>(.*?)</parameter>"
+        fn_name = fn_match.group(1)
+        fn_body = fn_match.group(2)
+
+        matching_schema = None
+        for tool_schema in tool_schemas:
+            if tool_schema["name"] == fn_name:
+                matching_schema = tool_schema
+                break
+        if matching_schema is None:
+            raise RuntimeError(f"Can not match tool schema with tool name: {fn_name}")
+        
+        arguments = {}
+
+        for arg_match in re.finditer(FN_PARAM_REGEX_PATTERN_TMP, fn_body, re.DOTALL):
+            arg_name = arg_match.group(1)
+            arg_value = arg_match.group(2)
+            try:
+                arg_value = json.loads(arg_value)
+            except Exception as e:
+                pass
+            arguments[arg_name] = arg_value
+            arguments[arg_name] = type_conversion(matching_schema, arg_name, arg_value)
+        
+        validate(instance=arguments, schema=matching_schema['parameters'])
         funciton_calls.append({"function": fn_name, "parameters": arguments})
     return funciton_calls
 

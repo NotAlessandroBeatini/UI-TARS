@@ -9,7 +9,7 @@ def convert_param_value_to_xml(param_value, indent_level=0):
     支持的格式：
     - <object> </object>: JSON对象
     - <list> </list>: 列表
-    - <text_never_used_51bce0c785ca2f68081bfa7d91973934> </text_never_used_51bce0c785ca2f68081bfa7d91973934>: XML内容
+    - <text> </text>: XML内容
     - 简单文本: 直接内容（支持多行）
 
     Args:
@@ -26,7 +26,7 @@ def convert_param_value_to_xml(param_value, indent_level=0):
         if len(param_value) == 1 and "_xml_content_" in param_value:
             # 特殊处理XML内容
             xml_content = param_value["_xml_content_"]
-            return f"{indent}<text_never_used_51bce0c785ca2f68081bfa7d91973934>{indent}{xml_content}{indent}</text_never_used_51bce0c785ca2f68081bfa7d91973934>"
+            return f"{indent}<text>{indent}{xml_content}{indent}</text>"
 
         # 对于普通字典类型，转换为嵌套的XML格式
         xml_parts = [f"\n{indent}<object>"]
@@ -35,12 +35,12 @@ def convert_param_value_to_xml(param_value, indent_level=0):
             if _is_complex_value(converted_value):
                 # 复杂值（包含换行或嵌套结构）
                 xml_parts.append(
-                    f"{indent}<parameter_never_used_51bce0c785ca2f68081bfa7d91973934={key}>{converted_value}{indent}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+                    f"{indent}<parameter={key}>{converted_value}{indent}</parameter>"
                 )
             else:
                 # 简单值
                 xml_parts.append(
-                    f"{indent}<parameter_never_used_51bce0c785ca2f68081bfa7d91973934={key}>{converted_value}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+                    f"{indent}<parameter={key}>{converted_value}</parameter>"
                 )
         xml_parts.append(f"{indent}</object>")
         return "".join(xml_parts)
@@ -68,7 +68,7 @@ def convert_param_value_to_xml(param_value, indent_level=0):
 
         # 检查是否包含XML标签，如果是则需要特殊处理
         if _contains_xml_tags(str_value):
-            return f"{indent}<text_never_used_51bce0c785ca2f68081bfa7d91973934>{_indent_text(str_value, indent_level + 1)}{indent}</text_never_used_51bce0c785ca2f68081bfa7d91973934>"
+            return f"{indent}<text>{_indent_text(str_value, indent_level + 1)}{indent}</text>"
 
         # 检查是否为多行文本
         if "\n" in str_value:
@@ -85,12 +85,12 @@ def _is_complex_value(value_str):
 def _contains_xml_tags(text):
     """检查文本是否包含XML标签或可能干扰XML解析的字符"""
     patterns = [
-        "<function_never_used_51bce0c785ca2f68081bfa7d91973934=",
-        "</function_never_used_51bce0c785ca2f68081bfa7d91973934>",
-        "<parameter_never_used_51bce0c785ca2f68081bfa7d91973934=",
-        "</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>",
-        "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934=",
-        "</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>",
+        "<function=",
+        "</function>",
+        "<parameter=",
+        "</parameter>",
+        "<seed:tool_call=",
+        "</seed:tool_call>",
     ]
     for pattern in patterns:
         if pattern in text:
@@ -131,9 +131,9 @@ def parse_xml_param_value(xml_content):
     elif xml_content.startswith("<list>") and xml_content.endswith("</list>"):
         return _parse_xml_list(xml_content)
 
-    # 处理 <text_never_used_51bce0c785ca2f68081bfa7d91973934> 标签
-    elif "<text_never_used_51bce0c785ca2f68081bfa7d91973934>" in xml_content:
-        text_pattern = r"<text_never_used_51bce0c785ca2f68081bfa7d91973934>(.*?)</text_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    # 处理 <text> 标签
+    elif "<text>" in xml_content:
+        text_pattern = r"<text>(.*?)</text>"
         match = re.search(text_pattern, xml_content, re.DOTALL)
         if match:
             content = match.group(1)
@@ -251,18 +251,18 @@ def make_assistant_response(call):
         )
     
     function_block = (
-        f"<function_never_used_51bce0c785ca2f68081bfa7d91973934={function_name}>"
+        f"<function={function_name}>"
     )
     if isinstance(parameters, list):
         xml_value = json.dumps(parameters, ensure_ascii=False)
-        function_block += f"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934={param_name}>{xml_value}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        function_block += f"<parameter={param_name}>{xml_value}</parameter>"
     elif isinstance(parameters, dict):
         is_single_dict = is_single_layer(parameters)
         if is_single_dict:
             for param_name, param_value in parameters.items():
                 # 使用新的XML转换逻辑处理参数值
                 xml_value = param_value
-                function_block += f"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934={param_name}>{xml_value}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+                function_block += f"<parameter={param_name}>{xml_value}</parameter>"
         else:
             for param_name, param_value in parameters.items():
                 if isinstance(param_value, dict):
@@ -271,12 +271,12 @@ def make_assistant_response(call):
                     xml_value = json.dumps(param_value, ensure_ascii=False)
                 else:
                     xml_value = param_value
-                function_block += f"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934={param_name}>{xml_value}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
-    function_block += "</function_never_used_51bce0c785ca2f68081bfa7d91973934>"
+                function_block += f"<parameter={param_name}>{xml_value}</parameter>"
+    function_block += "</function>"
     return (
-        "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        "<seed:tool_call>"
         + function_block
-        + "</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        + "</seed:tool_call>"
     )
 
 def make_assistant_responses(calls):
@@ -284,7 +284,6 @@ def make_assistant_responses(calls):
     # 检查是否是OpenAI格式 (有id, type, function字段)
     function_block = ""
     for call in calls:
-        
         function_name = call["function"]["name"]
         parameters = call["function"].get("arguments", {})
 
@@ -302,19 +301,19 @@ def make_assistant_responses(calls):
                 f"Error when converting tool call to assistant response: parameters must be a dict or list, but got {type(parameters)}"
             )
         
-        function_block += (
-            f"<function_never_used_51bce0c785ca2f68081bfa7d91973934={function_name}>"
+        function_block = (
+            f"<function={function_name}>"
         )
         if isinstance(parameters, list):
             xml_value = json.dumps(parameters, ensure_ascii=False)
-            function_block += f"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934={param_name}>{xml_value}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+            function_block += f"<parameter={param_name}>{xml_value}</parameter>"
         elif isinstance(parameters, dict):
             is_single_dict = is_single_layer(parameters)
             if is_single_dict:
                 for param_name, param_value in parameters.items():
                     # 使用新的XML转换逻辑处理参数值
                     xml_value = param_value
-                    function_block += f"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934={param_name}>{xml_value}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
+                    function_block += f"<parameter={param_name}>{xml_value}</parameter>"
             else:
                 for param_name, param_value in parameters.items():
                     if isinstance(param_value, dict):
@@ -323,14 +322,13 @@ def make_assistant_responses(calls):
                         xml_value = json.dumps(param_value, ensure_ascii=False)
                     else:
                         xml_value = param_value
-                    function_block += f"<parameter_never_used_51bce0c785ca2f68081bfa7d91973934={param_name}>{xml_value}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934>"
-        function_block += "</function_never_used_51bce0c785ca2f68081bfa7d91973934>"
+                    function_block += f"<parameter={param_name}>{xml_value}</parameter>"
+        function_block += "</function>"
     return (
-        "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        "<seed:tool_call>"
         + function_block
-        + "</seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+        + "</seed:tool_call>"
     )
-    
 
 if __name__ == "__main__":
     # 测试工具调用
@@ -352,12 +350,54 @@ if __name__ == "__main__":
     ]
 
     response = make_assistant_responses(test_calls)
-    print(response)
+    print(json.dumps(response))
+    
+    from action_parser import parse_xml_action_02_with_validate
 
-    from action_parser import parse_xml_action_02sptoken
-    response = "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=doubao_code_interpreter><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=code_object>{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=code_str>'{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}'</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=language>True</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=index>1</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=text>this is a test</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=chunks>[\"block1\", \"block2\"]</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934></seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    response = "<seed:tool_call><function=doubao_code_interpreter><parameter=code>{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}</parameter><parameter=language>True</parameter><parameter=index>1</parameter><parameter=text>this is a test</parameter><parameter=chunks>[\"block1\", \"block2\"]</parameter></function></seed:tool_call>"
     print(response)
     
-    tool_calls = parse_xml_action_02sptoken(response)
+    tool_schemas = [
+        {
+            "type": "function",
+            "name": "doubao_code_interpreter",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                        "type": "string"
+                        },
+                        "value": {
+                        "type": "string"
+                        }
+                    },
+                    "required": ["name", "value"]
+                    },
+                    "language": {
+                    "type": "boolean"
+                    },
+                    "index": {
+                    "type": "string"
+                    },
+                    "text": {
+                    "type": "string"
+                    },
+                    "chunks": {
+                    "type": "string",
+                    "items": {
+                        "type": "string"
+                    }
+                    }
+                },
+                "required": ["code", "language", "index", "text", "chunks"]
+            },
+            "description": "Type content."
+        }
+    ]
+    
+    tool_calls = parse_xml_action_02_with_validate(response, tool_schemas)
     test_calls = [{"type": "function", "function": {"name": call["function"], "arguments": call["parameters"]}} for call in tool_calls]
     print(test_calls)

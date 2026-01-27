@@ -352,12 +352,53 @@ if __name__ == "__main__":
     ]
 
     response = make_assistant_responses(test_calls)
-    print(response)
+    # print(response)
 
-    from action_parser import parse_xml_action_02sptoken
-    response = "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=doubao_code_interpreter><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=code_object>{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=code_str>'{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}'</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=language>True</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=index>1</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=text>this is a test</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=chunks>[\"block1\", \"block2\"]</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934></seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
-    print(response)
+    from action_parser import parse_xml_action_02sptoken_with_validate
+    response = "<seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934><function_never_used_51bce0c785ca2f68081bfa7d91973934=doubao_code_interpreter><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=code>{\"name\": \"code\", \"value\": \"print('Hello,\\n\\n\\\\n World!')\"}</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=language>True</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=index>1</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=text>this is a test</parameter_never_used_51bce0c785ca2f68081bfa7d91973934><parameter_never_used_51bce0c785ca2f68081bfa7d91973934=chunks>[\"block1\", \"block2\"]</parameter_never_used_51bce0c785ca2f68081bfa7d91973934></function_never_used_51bce0c785ca2f68081bfa7d91973934></seed:tool_call_never_used_51bce0c785ca2f68081bfa7d91973934>"
+    # print(response)
+    # 
+    tool_schemas = [
+        {
+            "type": "function",
+            "name": "doubao_code_interpreter",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                        "type": "string"
+                        },
+                        "value": {
+                        "type": "string"
+                        }
+                    },
+                    "required": ["name", "value"]
+                    },
+                    "language": {
+                    "type": "boolean"
+                    },
+                    "index": {
+                    "type": "integer"
+                    },
+                    "text": {
+                    "type": "string"
+                    },
+                    "chunks": {
+                    "type": "string",
+                    "items": {
+                        "type": "string"
+                    }
+                    }
+                },
+                "required": ["code", "language", "index", "text", "chunks"]
+            },
+            "description": "Type content."
+        }
+    ]
     
-    tool_calls = parse_xml_action_02sptoken(response)
+    tool_calls = parse_xml_action_02sptoken_with_validate(response, tool_schemas)
     test_calls = [{"type": "function", "function": {"name": call["function"], "arguments": call["parameters"]}} for call in tool_calls]
     print(test_calls)
