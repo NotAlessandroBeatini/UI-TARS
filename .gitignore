@@ -1,0 +1,35 @@
+# Logs (keep .log files, ignore everything else in logs/)
+logs/*
+!logs/.gitkeep
+!logs/*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Model weights / HF cache
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+huggingface/
+
+# Large files
+*.pdf
+
+# Conda / env
+miniconda3/
+.conda/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
